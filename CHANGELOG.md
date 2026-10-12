@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `api/`: HAVN API skeleton — Axum 0.8 + SQLx/Postgres. GET /health, GET /api/products
+  (503 without DATABASE_URL, server still boots). Money as integer cents
+  (`format_hkd`, panics on negative). `validate_slug`. Migration 0001: products table
+  with price/stock CHECKs including table-level `stock_reserved <= stock_total`.
+  13 tests: unit + HTTP contract (health, missing-DB 503, no driver-error leak).
 - Repository initialised: README, CHANGELOG, .gitignore.
 - Vision (untracked, contains cost data): HAVN, curated designer homeware house for
   Hong Kong; opening drop of 16 Louis Poulsen units purchased and in transit.

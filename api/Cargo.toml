@@ -1,0 +1,33 @@
+[package]
+name = "havn-api"
+version = "0.1.0"
+edition = "2021"
+
+# Library target holds the reusable helpers (money, slug); the binary target
+# holds the Axum server. Splitting them keeps the helpers usable (and testable)
+# without dead-code warnings in a binary-only crate.
+[lib]
+name = "havn_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "havn-api"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+# Declared directly because product JSON includes `created_at` (TIMESTAMPTZ) as a
+# `chrono::DateTime<Utc>` with serde support; sqlx's `chrono` feature maps the type.
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# tower::ServiceExt::oneshot drives the router in HTTP contract tests.
+tower = { version = "0.5", features = ["util"] }
