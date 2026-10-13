@@ -14,7 +14,9 @@ import {
   fetchSettings,
   fetchSiteContent,
   getProduct,
+  parseCatalogue,
 } from "../lib/catalog-client.ts";
+import { isRustBlank } from "../lib/rust-text.ts";
 
 const API = "http://api.test";
 
@@ -182,4 +184,59 @@ test("blank product copy fields throw instead of rendering empty passages", asyn
     () => fetchCatalogue(API, () => json(apiCatalogue([blankModelAlt]))),
     /blank model_alt/,
   );
+});
+
+test("parseCatalogue accepts an EMPTY family (the D2a write contract allows it)", async () => {
+  // Review finding (D2b task 4): the admin API legally persists family ""
+  // (NUL-check only). The parser must match the writer's contract — a blank
+  // family active product used to throw here and take the WHOLE catalogue
+  // (storefront build/regeneration) down. brand/model/slug stay strict.
+  const row = { ...apiProduct, family: "" };
+  const catalogue = parseCatalogue(apiCatalogue([row]));
+  assert.equal(catalogue.products[0].family, "");
+  // fetchCatalogue goes through the same parser (parity by construction).
+  const fetched = await fetchCatalogue(API, () => json(apiCatalogue([row])));
+  assert.equal(fetched.products[0].family, "");
+});
+
+test("parseCatalogue rejects a blank brand (the API contract never allows it)", () => {
+  const row = { ...apiProduct, brand: "  " };
+  assert.throws(() => parseCatalogue(apiCatalogue([row])), /product brand/);
+});
+
+test("parseCatalogue: empty catalogue throws by default (storefront) but allowEmpty parses (admin reader)", () => {
+  // Review finding (re-review): an all-inactive catalogue is a LEGAL API
+  // state; the storefront build still fails loudly on it, but the ADMIN
+  // reader must keep rendering the Activate form — without allowEmpty,
+  // deactivating the last active product locked the admin out of the
+  // detail pages entirely.
+  const empty = apiCatalogue([]);
+  assert.throws(() => parseCatalogue(empty), /catalogue is empty/);
+  const parsed = parseCatalogue(empty, { allowEmpty: true });
+  assert.deepEqual(parsed, { totalPieces: 0, products: [] });
+  assert.equal(getProduct(parsed, "anything"), undefined);
+  // Structural validity is still enforced with allowEmpty (this malformed
+  // shape fails on its missing total_pieces).
+  assert.throws(() => parseCatalogue({ products: [] }, { allowEmpty: true }), /malformed catalogue total_pieces/);
+});
+
+test("blankness is RUST-exact: U+FEFF is NON-blank (JS trim would disagree)", () => {
+  // Review finding (re-review): the D2a validators trim by the Unicode
+  // White_Space property — Rust does NOT trim U+FEFF, JS trim() does. A
+  // brand of just "\uFEFF" is a LEGAL API value and must parse.
+  const bom = "\uFEFF";
+  const row = { ...apiProduct, brand: bom };
+  const catalogue = parseCatalogue(apiCatalogue([row]));
+  assert.equal(catalogue.products[0].brand, bom);
+  // White_Space code points ARE blank on both sides (U+0085, U+3000).
+  for (const blank of ["\u0085", "\u3000", " \t\n"]) {
+    assert.throws(
+      () => parseCatalogue(apiCatalogue([{ ...apiProduct, brand: blank }])),
+      /product brand/,
+    );
+  }
+  // The shared predicate itself.
+  assert.equal(isRustBlank(bom), false);
+  assert.equal(isRustBlank("\u0085"), true);
+  assert.equal(isRustBlank("\uFEFF\uFEFF"), false);
 });

@@ -57,7 +57,7 @@ import {
   resolveSiteConfig,
 } from "@/lib/config";
 import { altLocale, htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
-import { alternatesFor, productJsonLd } from "@/lib/seo";
+import { alternatesFor, jsonLdScript, productJsonLd } from "@/lib/seo";
 import { formatMoney } from "@/lib/money";
 import {
   artLabel,
@@ -207,7 +207,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(
+          // jsonLdScript (lib/seo.ts): admin-writable product text must never
+          // be able to terminate this element — `<` is escaped, so a stored
+          // `</script>` cannot break out (review finding, D2b task 4).
+          __html: jsonLdScript(
             productJsonLd({ product, locale, config }),
           ),
         }}

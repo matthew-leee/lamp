@@ -6,6 +6,92 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `web/` D2b task 4 (ADMIN-01): the admin EDITOR surface (pages + relays,
+  English-only, plain HTML forms with NO authored client JS,
+  `globals.css` token classes only (CSS-01), `force-dynamic` everywhere),
+  built on the pure round-A data layer `web/lib/admin-editors.ts` (editor
+  slug contract, fail-loud row parsers, PRODUCT_FIELDS form metadata and
+  every dispatcher). Pages (behind `requireAdminSession`):
+  `products` — the product table (id, slug, brand · model, price via
+  `formatMoney` for ADMIN DISPLAY only, active yes/no, stock total /
+  reserved, Edit link) plus the create form rendering every PRODUCT_FIELDS
+  input (art_variant select of the closed set, active checkbox default
+  CHECKED paired with a hidden `active=false` companion so an unchecked box
+  still creates an inactive product — the D2a create DTO requires `active`);
+  `products/[id]` — the product patch form (patch semantics: provided
+  fields only — blank number / unchecked active are OMITTED = unchanged,
+  blank text is sent blank so the API 400s empty slug/brand/model
+  honestly), per-locale/per-field product-content upserts (values must be
+  NON-empty — no clearing; rows that exist are marked, missing rows render
+  empty inputs), reference-price upsert + delete (delete only offered when
+  a row exists), and the product's pieces (create / reassign / delete);
+  `site-content` — per key (map order) and locale (the default pair UNION
+  the locales present) save/delete forms, keys free-form (no server-side
+  whitelist), values non-empty; `audit` — READ-ONLY view of the last 200
+  rows, newest first, ISO timestamps as-is, `detail` JSON.stringify'd when
+  present. Reads: `GET /api/admin/products` (ALL rows incl. inactive +
+  stock) and `GET /api/admin/audit-log` via `adminGet`; PUBLIC
+  `GET /api/catalogue` (content map / pieces / reference price — the only
+  read surface for them; an inactive product is legitimately ABSENT from
+  the catalogue and the page says so honestly instead of failing) and
+  PUBLIC `GET /api/site-content`, both `cache: "no-store"`; malformed or
+  non-200 reads render a fail-loud panel and NO forms. Relays (outside the
+  `(authed)` group): `products`, `products/[id]`, `product-content`,
+  `reference-prices/[product_id]`, `pieces`, `pieces/[piece_no]`,
+  `site-content` — same-origin guard -> whoami-confirmed session -> form
+  parse -> round-A dispatcher (session cookie + `X-Requested-With` added
+  server-side; the API re-validates everything — UI hints are UX, not
+  validation) -> 303 RELATIVE redirect with a slug-only query on the right
+  page (`?saved=<savedKey>` — the dispatcher's own key, echoed only behind
+  a CLOSED savedKey-shape pattern — or `?error=<slug>` mapped through a Map
+  with a generic fallback; the API's raw error text never enters a URL).
+  The pieces DELETE relay routes to the product LIST (`/admin/products`)
+  when the form carries no product_id (the delete form deliberately has
+  none — after the delete there is no piece row to return to, and the
+  page's only product_id field is the reassign TARGET); reassign uses the
+  form's product_id as both mutation target and redirect context. The
+  round-A slug mapping note stands: 403 maps to `network` (retry), NEVER a
+  value verdict — the API rejects XRW-less requests before judging
+  anything, so a 403 is a relay bug surface, not the operator's field.
+  69 editor unit tests (`test/admin-editors.test.mjs`), 315 total; zero
+  existing tests touched (pages/relays are behavioral — deferred to the
+  D2c scratch-Postgres suite per the documented decision; the architect
+  live-gates the flows).
+  Review fixes folded in (independent review pass): (P1) `catalog-client`
+  `parseProduct` accepts an EMPTY `family` via the new `isLooseString`
+  (the D2a write contract allows family "" — NUL-check only — and a legal
+  admin write used to blank the WHOLE storefront catalogue read;
+  brand/model/slug stay strict); (P1) the storefront Product JSON-LD sink
+  serializes through the new `jsonLdScript` (lib/seo.ts): `<`, `>`, `&`
+  and U+2028/U+2029 are escaped as `\uXXXX` in the output STRING, so
+  admin-writable brand/model text can no longer terminate the inline
+  `<script>` element (stored `</script>` XSS) — pinned by tests incl.
+  round-trip `JSON.parse` equality; (P2) the product detail page renders an
+  EXPLICIT storefront-visibility form (Deactivate/Activate) — the patch
+  form's checkbox alone can never submit `active:false` (unchecked =
+  omitted = unchanged); (P2) the detail catalogue read goes through the
+  STOREFRONT'S OWN exported `parseCatalogue` via `adminGet` (parser parity
+  by construction; the hand-rolled parser had drifted — lenient where the
+  storefront is strict and vice versa — and the public reads now carry the
+  shared abort budget, headers AND body); (P2) the products LIST's saved
+  banner vocabulary accepts the pieces relay's `piece <n>` fallback keys;
+  (P2) site-content `.`/`..` keys are transport-unsafe (`isTransportSafeKey`:
+  WHATWG URL dot-segment normalization makes them un-DELETE-able) and are
+  rejected `invalid` WITHOUT dispatch in both site-content dispatchers;
+  the site-content page also gained the new-key form (the API applies no
+  key whitelist); (P3) create/visibility forms note route-set changes need
+  a rebuild. Tests after fixes: 319 total.
+  Re-review fixes (second independent pass): the storefront's OWN build
+  requires a non-empty active catalogue but the ADMIN reader must not —
+  `parseCatalogue(body, {allowEmpty})` lets the admin detail page keep
+  rendering the Activate form after the last active product is hidden
+  (an all-inactive catalogue is a legal API state; deactivating the last
+  product used to LOCK the admin out of every detail page), and the
+  blankness predicate is now RUST-EXACT (`lib/rust-text.ts`
+  `isRustBlank`: Unicode White_Space only — JS `trim()` also drops U+FEFF,\n  so a legal Rust-non-blank brand like "\uFEFF" could throw the whole
+  storefront catalogue parse; the predicate is shared by catalog-client
+  and admin-editors, pinned by cross-tier tests incl. U+0085/U+3000).
+  Tests after re-review fixes: 321 total.
 - `web/` D2b task 3 (ADMIN-01, SCOPE-01): admin settings page per the
   founder toggle spec — plain HTML forms with NO authored client JS,
   English-only admin, `globals.css` token classes only (CSS-01). The seven

@@ -28,6 +28,7 @@
  */
 
 import { contentRevalidateSeconds, fetchTimeoutMs } from "./config.ts";
+import { isRustBlank } from "./rust-text.ts";
 
 /* ------------------------------------------------------------------ */
 /* Types (mirroring the API DTOs, snake_case -> camelCase)             */
@@ -145,7 +146,14 @@ function required<T>(
 }
 
 const isString = (v: unknown): v is string =>
-  typeof v === "string" && v.trim() !== "";
+  typeof v === "string" && !isRustBlank(v);
+/** Any string incl. blank: the D2a write contract allows an empty `family`
+ * (NUL-check only, api/src/admin_crud.rs) — the catalogue parser must match
+ * the writer's contract or a legal admin write blanks the storefront
+ * (review finding: a blank-family active product used to throw HERE and
+ * take the whole catalogue down). brand/model/slug stay strict: the API
+ * rejects blank values for those, so a blank there IS malformed. */
+const isLooseString = (v: unknown): v is string => typeof v === "string";
 const isInt = (v: unknown): v is number =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 
@@ -212,7 +220,7 @@ function parseProduct(row: unknown): CatalogueProduct {
     brand: required(r.brand, "product brand", isString),
     model: required(r.model, "product model", isString),
     priceCents: required(r.price_cents, "product price_cents", isInt),
-    family: required(r.family, "product family", isString),
+    family: required(r.family, "product family", isLooseString),
     art: {
       variant: artVariant,
       hue: required(r.art_hue, "product art_hue", isInt),
@@ -224,25 +232,45 @@ function parseProduct(row: unknown): CatalogueProduct {
   };
 }
 
-/** GET /api/catalogue -> Catalogue (throws on any malformed response). */
-export async function fetchCatalogue(
-  apiUrl: string,
-  fetchImpl: FetchLike = fetch,
-): Promise<Catalogue> {
-  const body = await getJson(apiUrl, "/api/catalogue", "catalogue", fetchImpl);
+/**
+ * Parse a GET /api/catalogue response into a Catalogue (throws on any
+ * malformed response — the fail-loud storefront contract). Exported so the
+ * D2b admin product detail reads through the SAME parser as the storefront
+ * (parser parity by construction, review finding: a hand-rolled admin-side
+ * parser drifted — lenient where the storefront is strict and vice versa).
+ */
+export function parseCatalogue(
+  body: unknown,
+  options: { allowEmpty?: boolean } = {},
+): Catalogue {
   if (typeof body !== "object" || body === null || !Array.isArray((body as Record<string, unknown>).products)) {
     throw new Error("catalog-client: catalogue response has no products array");
   }
   const b = body as Record<string, unknown>;
   const products = (b.products as unknown[]).map(parseProduct);
   const totalPieces = required(b.total_pieces, "catalogue total_pieces", isInt);
-  if (products.length === 0) {
+  if (products.length === 0 && options.allowEmpty !== true) {
+    // The STOREFRONT build requires at least one active product (a shop with
+    // nothing to sell fails loudly). The ADMIN reader instead passes
+    // allowEmpty — an all-inactive catalogue is a legitimate state there:
+    // without this, deactivating the last active product LOCKS the admin
+    // out of the detail pages (no Activate form could ever render, review
+    // finding). Structural validity is still enforced either way.
     throw new Error(
       "catalog-client: catalogue is empty (no active products); " +
         "run the migrations and the seed before building.",
     );
   }
   return { totalPieces, products };
+}
+
+/** GET /api/catalogue -> Catalogue (throws on any malformed response). */
+export async function fetchCatalogue(
+  apiUrl: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<Catalogue> {
+  const body = await getJson(apiUrl, "/api/catalogue", "catalogue", fetchImpl);
+  return parseCatalogue(body);
 }
 
 /** GET /api/site-content -> SiteContent (key -> locale -> value). */
@@ -321,7 +349,7 @@ export function contentValue(
         "(run the seed, or complete the content row).",
     );
   }
-  if (entry.trim() === "") {
+  if (isRustBlank(entry)) {
     throw new Error(
       `catalog-client: site content key "${key}" for locale "${locale}" is blank ` +
         "(present but empty rows are not renderable copy).",

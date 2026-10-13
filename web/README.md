@@ -164,7 +164,9 @@ resolution is override, then env default. Secrets are env-only.
   `test/availability-lifecycle.test.mjs`, `test/i18n.test.mjs`,
   `test/money.test.mjs`, `test/admin-client.test.mjs`,
   `test/admin-relay.test.mjs`, `test/admin-settings.test.mjs`,
-  `test/admin-settings-relay.test.mjs` and
+  `test/admin-settings-relay.test.mjs`, `test/admin-editors.test.mjs`
+  (the D2b task-4 editor data layer: editorSlug mapping, fail-loud row
+  parsers, form metadata and every dispatcher's exact request) and
   `test/ui-copy.test.mjs` are unit suites (mocked
   fetch/env, no network); `test/routes.test.mjs`, `test/pages.test.mjs` and
   `test/admin-routes.test.mjs` are server-based behavioural suites
@@ -201,6 +203,9 @@ brand/currency/locales/env-knob configuration; the inline TS catalogue
 deleted. T4: SEO surface (Product JSON-LD with price always and
 availability deliberately omitted, canonical + hreflang + x-default,
 sitemap, robots) + GA4/GSC env-gated OFF + bare-404 single-source CSS
-(Q3) + rename sweep. Not yet: admin console CRUD over the data (D2),
-cart/checkout and payment (M1 money path), `output: "standalone"` for the
-Docker deploy.
+(Q3) + rename sweep. The admin console (D2) is shipped: the Rust admin
+API (D2a) + the web admin UI (D2b — login/session relay, settings,
+products/content/reference-price/pieces/site-content editors, audit
+view). Not yet: the D2c scratch-Postgres behavioral suites (admin auth
+round-trips + DB-backed editor paths), cart/checkout and payment (M1
+money path), `output: "standalone"` for the Docker deploy.

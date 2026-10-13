@@ -32,6 +32,25 @@ export function absoluteUrl(siteUrl: string, path: string): string {
   return `${siteUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
+/**
+ * Serialize JSON for an INLINE `<script type="application/ld+json">` element
+ * (review finding, D2b task 4): `JSON.stringify` does NOT escape `<`, so admin-
+ * writable product text (brand/model/model_alt — the API accepts arbitrary
+ * NUL-free non-blank strings) containing `</script>` would terminate the
+ * element early and inject markup into the page. Escape the HTML-sensitive
+ * code points in the OUTPUT STRING (the standard inline-JSON technique:
+ * `<` `>` `&` and the JS line terminators U+2028/U+2029, which cannot appear
+ * in a JSON string literal) — the JSON structure itself is untouched.
+ */
+export function jsonLdScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 /** The absolute URL of one locale's home page. */
 export function localeUrl(siteUrl: string, locale: string): string {
   return absoluteUrl(siteUrl, locale);

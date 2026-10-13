@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   absoluteUrl,
   alternatesFor,
+  jsonLdScript,
   localeUrl,
   productJsonLd,
   productUrl,
@@ -130,4 +131,33 @@ test("validGaId: only G-XXXX shapes pass; anything else is OFF", () => {
     "analytics.ga_measurement_id": "G-ABC123DEFG",
   });
   assert.equal(configGood.gaMeasurementId, "G-ABC123DEFG");
+});
+test("jsonLdScript escapes HTML-sensitive code points (inline <script> XSS closed)", () => {
+  // Review finding (D2b task 4): brand/model/model_alt are ADMIN-WRITABLE
+  // arbitrary text; JSON.stringify does NOT escape "<", so a stored
+  // "</script>" would terminate the JSON-LD element early and inject
+  // markup into the product page. jsonLdScript must escape <, >, & and the
+  // U+2028/U+2029 line separators in the output STRING.
+  const malicious = { name: '</script><script>alert("x")</script>', brand: "a<b&c" };
+  const out = jsonLdScript(malicious);
+  assert.ok(!out.includes("</script>"), "no raw </script> may survive");
+  // The escapes are JSON \\uXXXX sequences: a regex matches the LITERAL
+  // backslash + hex (a string escape \u003c would test for the raw char).
+  assert.match(out, /\\u003c\/script\\u003e\\u003cscript\\u003e/);
+  assert.match(out, /\\u0026/);
+  // U+2028/U+2029 are illegal in JSON string literals.
+  const withLine = jsonLdScript({ v: "a\u2028b\u2029c" });
+  assert.ok(!withLine.includes("\u2028") && !withLine.includes("\u2029"));
+  // Round-trip: the escaped output is still valid JSON with the original values.
+  assert.deepEqual(JSON.parse(out), malicious);
+  // The page's JSON-LD sink uses it (product page uses jsonLdScript, not raw stringify).
+  const hostile = { ...CATALOGUE[0], brand: "</script>x" };
+  const rendered = jsonLdScript(
+    productJsonLd({
+      product: { ...hostile, content: {}, referencePrice: null, pieces: [], unitsInDrop: 1 },
+      locale: "en",
+      config: configWith({ "site.url": SITE }),
+    }),
+  );
+  assert.ok(!rendered.includes("</script>"));
 });

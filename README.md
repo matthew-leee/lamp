@@ -176,6 +176,41 @@ next request after expiry serves the last-good value while the fresh one
 regenerates in the background (request-triggered stale-while-revalidate,
 no deadline promise); route-set changes still need a rebuild.
 
+D2b task 4 adds the admin EDITOR surface — English-only plain-HTML pages
+(no AUTHORED client JS), `globals.css` token classes only, `force-dynamic`
+everywhere: `products` (the product table — id, slug, brand · model,
+formatted price for ADMIN DISPLAY only, active yes/no, stock total /
+reserved — plus the create form), `products/{id}` (the product patch form,
+an EXPLICIT storefront-visibility form (Activate/Deactivate — the patch
+form's checkbox alone can never submit `active:false`), per-locale/per-
+field product-copy upserts with NON-empty values, the verified reference
+price upsert/delete, and the product's numbered pieces — create /
+reassign / delete), `site-content` (per key/locale save/delete + a
+new-key form; keys are free-form EXCEPT the transport-unsafe `.`/`..`
+rejected web-side, values non-empty), and the READ-ONLY `audit` view (the
+last 200 rows, newest first). Reads: `GET /api/admin/products` (ALL rows
+incl. inactive, with stock) and `GET /api/admin/audit-log` forward the
+session cookie; product copy, reference prices and pieces are read from
+the PUBLIC `GET /api/catalogue` — parsed by the STOREFRONT'S OWN exported
+`parseCatalogue` via `adminGet` (parser parity, shared abort budget on
+headers AND body), and an inactive product is legitimately ABSENT from
+the catalogue, which the page states honestly — site copy from the
+PUBLIC `GET /api/site-content` (also `adminGet`); both public reads are
+`no-store` and a malformed or failed read renders a fail-loud panel with
+NO forms. Two storefront fixes landed from the task-4 review: `family` may
+be EMPTY in a catalogue row (the D2a write contract allows it; the parser
+used to take the whole storefront down on it), and the Product JSON-LD
+`<script>` serializes through `jsonLdScript` (`<`, `>`, `&`, U+2028/9
+escaped) so admin-writable brand/model text cannot terminate the element. Every mutation goes through a
+plain-form relay under `web/app/admin/api/` (`products`, `products/{id}`,
+`product-content`, `reference-prices/{product_id}`, `pieces`,
+`pieces/{piece_no}`, `site-content`): same-origin guard -> whoami-
+confirmed session -> `web/lib/admin-editors.ts` dispatcher (session cookie
++ `X-Requested-With` added server-side; the API re-validates everything)
+-> 303 with a RELATIVE Location and a slug-only query (`?saved=<dispatcher
+key>`, echoed only behind a closed savedKey-shape pattern, / `?error=<slug>`
+mapped through a Map — the API's raw error text never enters a URL).
+
 Gate note for the behavioural suite `web/test/admin-routes.test.mjs`: it
 needs the Rust API + seeded DB up (as for `npm run build`) with the gate's
 bootstrap admin (set `ADMIN_USERNAME`/`ADMIN_PASSWORD` at API boot; the
