@@ -6,6 +6,71 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `api/` D2a: admin auth surface (`src/admin.rs`). `POST /api/admin/login` +
+  `GET /api/admin/whoami`; stateless HMAC-SHA256 session cookies
+  (base64url `{sub,exp}` payload, `SESSION_COOKIE_NAME`/`SESSION_TTL_SECS`,
+  HttpOnly + SameSite=Lax + Secure by default via
+  `SESSION_COOKIE_SECURE`). Argon2id verification (v19, m=19456) with a
+  dummy-hash comparison on unknown users (no user enumeration, no timing
+  oracle); generic 401s. Bootstrap upserts the initial admin at boot when
+  `ADMIN_USERNAME`/`ADMIN_PASSWORD` are set — rotation is fail-closed via a
+  tri-state: `Rotation::None` (unset) or an APPLIED rotation enables login;
+  a REQUESTED-but-failed rotation (DB error/timeout) keeps login disabled
+  until a clean boot, and a present-but-blank or non-Unicode value BLOCKS
+  (a botched rotation can never re-enable the stale credential).
+  CSRF: every non-GET/HEAD/OPTIONS under `/api/admin` — login included —
+  requires a non-empty `X-Requested-With` header (403 otherwise; cross-site
+  forms cannot set it). Admission control: argon2 runs under
+  `LOGIN_MAX_CONCURRENT` (default 2) blocking permits + spawn_blocking,
+  429 over the cap; the permit is held for the whole verification so
+  cancellation cannot escape the bound; `LOGIN_LOOKUP_TIMEOUT` (10s)
+  bounds handler occupancy. Tests include a Node-computed interop vector
+  for the cookie format (mint in JS, verify in Rust) plus forged/reformed
+  payload rejections.
+- `api/` D2a: admin CRUD surface (`src/admin_crud.rs`), all routes on the
+  admin-protected router (session cookie + `X-Requested-With` CSRF):
+  products (create/partial update — deliberately no DELETE, products are
+  data), product_content upsert, reference_prices upsert + delete (=
+  verification pending), pieces insert/reassign/delete, site_content
+  upsert + delete, settings override upsert + delete (= revert to env), and
+  `GET /api/admin/audit-log` (last 200 rows). Pure validation runs BEFORE
+  any DB work (400 + specific `ErrorBody`): slug/brand/model/price/art
+  rules, product-content field + locale + value rules, reference-price
+  range + absolute-http(s) URL + real `YYYY-MM-DD` date, piece numbers,
+  site-copy rules, and the settings WRITE whitelist (D1 enforced
+  `PUBLIC_SETTING_KEYS` only on reads — D2 enforces writes too) plus
+  secret-looking-key rejection (defense in depth), no-toggle `brand.name` /
+  `site.url`, `^[A-Z]{3}$` currency, and empty = explicit OFF for optional
+  keys (CONFIG-01 presence-wins). Every successful mutation writes its
+  `audit_log` row in the SAME transaction as the mutation (commitment 2,
+  actor from the session, never the body), then fires the commitment-5b
+  revalidation webhook (`{"secret", "tags"}` to `REVALIDATE_URL`, tags
+  `catalogue` / `site-content` / `settings`) fire-and-forget in a spawned
+  hyper-1 HTTP/1 client task — one warn! on failure, no retries (the 60s ISR
+  window is the documented fallback). New env knobs: `LOCALES` (API-side
+  locale mirror for write validation, default `en,zh-HK`), `REVALIDATE_URL`
+  (absolute `http://` only — the webhook client has no TLS) and
+  `REVALIDATE_SECRET` (webhook off with a boot warn on misconfiguration).
+  Dependencies: `hyper` 1 (client, http1) + `hyper-util` (tokio IO adapter;
+  both already in the tree via axum).
+- `api/` D2a (review hardening, two reviewer passes on the CRUD slice):
+  `validate_source_url` now requires a non-empty host and a valid u16 port
+  (previously `https://:443/x` and `host:notaport` reached the DB);
+  `update_product` gained the positive-ID check every other handler had;
+  NUL bytes are rejected client-side across ALL free-text writes (Postgres
+  TEXT cannot hold them — create brand/model, patch brand/model/family,
+  content values, source names/URLs, site keys/values incl. the
+  percent-encoded `%00` DELETE path, settings values) as the 400s they are,
+  not 503s; `LOCALES` is now pair-strict (exactly two distinct BCP-47-style
+  tags, mirroring the web tier's `parseLocales`); `REVALIDATE_URL` boot
+  warns no longer log the rejected raw value; the webhook client drops
+  fragments (RFC 9110) and rejects whitespace authorities; admin GETs
+  (`/products`, `/audit-log`) carry `Cache-Control: no-store`. Gate green:
+  fmt clean, clippy `-D warnings` clean, 150/150 tests (103 unit + 47
+  integration; validation-before-DB and auth/CSRF/deletes/method-fallback
+  pinned with `pool: None`).
+
+### Added
 - `api/` D2a (start): admin auth schema + dependencies.
   Migration `0004_admin.sql`: `admin_users` table (username `TEXT UNIQUE`
   with cookie/log-safe charset CHECK `^[A-Za-z0-9_-]{1,64}$`, argon2id

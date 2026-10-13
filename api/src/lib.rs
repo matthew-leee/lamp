@@ -2,10 +2,12 @@
 //!
 //! The Axum server bootstrap lives in the binary target (`src/main.rs`);
 //! anything reusable (and unit-testable on its own) belongs here: request
-//! handlers with their DTOs (`catalogue`, `content`), shared HTTP plumbing
+//! handlers with their DTOs (`admin`, `catalogue`, `content`), shared HTTP plumbing
 //! (`state`), env configuration knobs (`config`) and pure helpers
 //! (`money`, `slug`).
 
+pub mod admin;
+pub mod admin_crud;
 pub mod catalogue;
 pub mod config;
 pub mod content;

@@ -3,10 +3,16 @@
 //! the raw driver error (which can embed connection strings, usernames and
 //! schema detail) never reaches the client.
 
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use axum::{http::StatusCode, Json};
 use serde::Serialize;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use tracing::error;
+
+use crate::admin::SessionKey;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -14,6 +20,21 @@ pub struct AppState {
     /// the `/api/*` data endpoints report 503 instead of taking the whole
     /// process down.
     pub pool: Option<PgPool>,
+    /// `None` when `SESSION_SECRET` is missing or under 32 bytes: the admin
+    /// login then reports 503 instead of minting cookies under a weak key.
+    pub session_key: Option<SessionKey>,
+    /// Bounds concurrent argon2id verifies in `/api/admin/login` (work
+    /// admission: each verify costs ~19 MiB + a heavy CPU slice). Per-app so
+    /// tests get isolated gates; sized by `admin::LOGIN_MAX_CONCURRENT` at
+    /// boot, and a saturated gate answers 429 instead of queuing.
+    pub login_gate: Arc<Semaphore>,
+    /// Admin-auth readiness, set by `admin::bootstrap_admin` ONLY when no
+    /// credential rotation was requested or the requested rotation was
+    /// applied. A requested-but-FAILED rotation leaves it false: login stays
+    /// disabled until a successful boot sync (fail closed against the stale
+    /// credential the rotation was meant to replace). Storefront routes never
+    /// read this.
+    pub admin_ready: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Serialize)]

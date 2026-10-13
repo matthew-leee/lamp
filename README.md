@@ -70,6 +70,48 @@ in the repo: the server upserts the initial admin at boot when
 HMAC-SHA256-signed cookies; the signing key `SESSION_SECRET` is env-only and
 never enters the database, the `settings` table, or the admin console.
 
+D2a adds the admin auth API (`api/src/admin.rs`): at boot, when
+`ADMIN_USERNAME`/`ADMIN_PASSWORD` are set, the server upserts the admin
+row (argon2id hash) — a rotation is fail-closed: a requested-but-failed
+rotation keeps login disabled until a clean boot, and a present-but-blank
+or non-Unicode env value never re-enables the stale credential.
+`POST /api/admin/login` (generic 401s, argon2id verify) and
+`GET /api/admin/whoami` issue/check the HMAC cookies above; every
+non-GET/HEAD/OPTIONS request under `/api/admin` — login included — must
+carry a non-empty `X-Requested-With` header (cross-site forms cannot set
+it), and concurrent argon2 verifications are capped
+(`LOGIN_MAX_CONCURRENT`, default 2; over the cap answers 429).
+
+D2a also adds the admin CRUD API (`api/src/admin_crud.rs`), all behind the
+`require_admin` session-cookie + `X-Requested-With` CSRF middleware:
+
+- `GET/POST /api/admin/products`, `PUT /api/admin/products/{id}` (partial
+  update; products are data and have no DELETE — use the `active` toggle)
+- `PUT /api/admin/product-content` (per product/locale/field upsert)
+- `PUT/DELETE /api/admin/reference-prices/{product_id}` (delete =
+  verification pending again)
+- `POST /api/admin/pieces`, `PATCH/DELETE /api/admin/pieces/{piece_no}`
+- `PUT /api/admin/site-content`, `DELETE /api/admin/site-content/{key}/{locale}`
+- `PUT/DELETE /api/admin/settings/{key}` (write whitelist =
+  `PUBLIC_SETTING_KEYS`; secret-looking keys are rejected; `brand.name` and
+  `site.url` may never be empty; `currency` is `^[A-Z]{3}$`; empty value on an
+  optional key is the explicit OFF state — deleting the row reverts to the env
+  default)
+- `GET /api/admin/audit-log` (last 200 rows)
+
+Every mutation validates BEFORE any database work (free-text values reject
+NUL bytes — Postgres TEXT cannot hold them — and reference-price source URLs
+require a non-empty host and valid port), then mutates and writes an
+`audit_log` row (actor, action, entity, entity_id, changed fields) in ONE
+transaction, then fires the on-demand revalidation webhook (commitment 5b):
+a fire-and-forget `POST {"secret", "tags"}` to `REVALIDATE_URL` with tags
+`catalogue` / `site-content` / `settings`. `REVALIDATE_URL` must be an
+absolute `http://` URL (the webhook client has no TLS) and needs
+`REVALIDATE_SECRET`; unset = webhook off (the 60s ISR window is the
+fallback). `LOCALES` (default `en,zh-HK`, exactly two distinct BCP-47 tags —
+the mirror of the web tier's `NEXT_PUBLIC_LOCALES` parser) gates admin
+content writes. Admin GET responses carry `Cache-Control: no-store`.
+
 ## Business documents
 
 `Vision.md` and `docs/designs/` are intentionally not committed: this repository is
