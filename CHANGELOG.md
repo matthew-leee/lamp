@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `web/` storefront pages (M2 T3): editorial homepage (numbered-drop hero,
+  8-SKU grid, trust strip) and 16 static product story pages (8 SKUs x
+  en/zh-HK) implementing the trust architecture: independent-seller
+  disclosure in trust block + footer (TRUST-01), honest pending warranty
+  copy, labelled reference pricing with amounts/source/checked date
+  (TRUST-02; PH 1/1 Piano shows verification pending), no delivery promises
+  (commitment 7), verified-facts-only electrical copy, drop numbering 01-16
+  (DROP-01), big-numeral integer-cent prices. Placeholder art with the
+  lights on/off toggle (only client JS besides availability), WhatsApp
+  enquiry button (hidden when env unset). Live availability: SSR HTML never
+  contains a stock number (time-based ISR serves stale pages, rejected);
+  `/api/availability` route handler reads the Rust API no-store with timeout
+  and fail-closed 503; client provider with pure lifecycle core (60s
+  confirmation TTL, in-flight-only dedupe, monotonic clock, rollback
+  fail-closed, stop/remount safe) renders N left / sold out / unconfirmed
+  (commitment 5b). 133 tests total, incl. independent approved-copy fixtures,
+  currency whitelists, delivery-promise bans both languages, lifecycle
+  stop/StrictMode/rollback suites.
 - `web/lib`: catalogue + availability data layer (M2 T2) — 8-SKU bilingual
   catalogue with integer-cent prices, drop numbering 01-16, labelled reference
   prices with source/date (MyConcept Hong Kong, checked 2026-10-12; PH 1/1

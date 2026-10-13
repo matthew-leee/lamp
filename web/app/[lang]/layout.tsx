@@ -8,7 +8,10 @@ import {
   Space_Grotesk,
 } from "next/font/google";
 
+import AvailabilityProvider from "@/components/availability-context";
 import { htmlLang, isLocale, locales } from "@/lib/i18n";
+import SiteFooter from "@/components/site-footer";
+import SiteHeader from "@/components/site-header";
 import "../globals.css";
 
 /*
@@ -73,7 +76,14 @@ export default async function RootLayout({
       ].join(" ")}
     >
       <body className="min-h-dvh bg-bone font-sans text-charcoal antialiased">
-        {children}
+        {/* Shared chrome (T3): every page carries the header and the footer
+            disclosure in both languages (TRUST-01). */}
+        <SiteHeader lang={lang} />
+        {/* Live availability provider (commitment 5b): SSR HTML never carries
+            stock numbers; badges confirm them client-side via /api/availability.
+            Kept inside the header/footer so the shared chrome stays static. */}
+        <AvailabilityProvider>{children}</AvailabilityProvider>
+        <SiteFooter lang={lang} />
       </body>
     </html>
   );
@@ -85,14 +95,17 @@ export async function generateMetadata({
   params: Promise<{ lang: string }>;
 }): Promise<Metadata> {
   const { lang } = await params;
+  // Metadata is neutral (review finding 2): it may state the drop-level fact
+  // that the whole opening drop is physically in Hong Kong, never that a SKU
+  // is "in stock" (the confirmed stock badge alone may say that).
   const title =
     lang === "zh-HK"
-      ? "HAVN | 精選設計家居 · 香港現貨"
-      : "HAVN | Curated designer homeware, in Hong Kong";
+      ? "HAVN | 精選設計家居 · 首發登場"
+      : "HAVN | Curated designer homeware, the opening drop";
   const description =
     lang === "zh-HK"
-      ? "HAVN 精選設計家居。設計燈飾首發登場，16 件編號作品，香港現貨。"
-      : "HAVN, curated designer homeware. The opening drop of designer lighting: 16 numbered pieces, in stock in Hong Kong.";
+      ? "HAVN 精選設計家居。設計燈飾首發登場，16 件編號作品，整批俱在香港。"
+      : "HAVN, curated designer homeware. The opening drop of designer lighting: 16 numbered pieces, the whole drop physically in Hong Kong.";
 
   return {
     title,

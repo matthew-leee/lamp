@@ -15,6 +15,11 @@
     setup and the document recovers with no lang.
   - language of parts: assertions run against the rendered document with all
     <script> blocks stripped, so RSC serialization noise cannot satisfy them.
+  - equal typography (I18N-01, review finding 4): the homepage collection
+    heading pair shares an IDENTICAL class list, extending the paired-lead
+    typography regression.
+  - aria-current="page" marks the home link only on the actual home route
+    (review finding 5, components/current-page-link.tsx).
 
   Server identity: the port is randomized, readiness is taken from the
   child's own "Ready" output line (not from any server answering), child
@@ -26,6 +31,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import * as copy from "../lib/ui-copy.ts";
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nextBin = path.join(webRoot, "node_modules", "next", "dist", "bin", "next");
@@ -100,6 +107,21 @@ function visible(html) {
   return html.replace(/<script[\s\S]*?<\/script>/g, "");
 }
 
+/** Occurrences of `needle` in `haystack`. */
+function count(haystack, needle) {
+  return haystack.split(needle).length - 1;
+}
+
+/** The class attribute of the element whose text content is exactly `text`. */
+function elementClassOf(body, text) {
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = body.match(
+    new RegExp(`<([a-z0-9]+)[^>]*class="([^"]*)"[^>]*>${escaped}</`),
+  );
+  assert.ok(match, `expected an element whose text is exactly "${text}"`);
+  return match[2];
+}
+
 test("/en serves English document", () =>
   check(async () => {
     const { status, html } = await get("/en");
@@ -126,6 +148,61 @@ test("/en: paired lead copy shares one type class (I18N-01 equal weight)", () =>
       leads.length >= 2,
       `expected both lead passages to share the lead class, found ${leads.length}`,
     );
+  }));
+
+// Equal-typography regression, extended (I18N-01, review finding 4): the
+// homepage collection heading pair must share an IDENTICAL class list, so
+// neither language can become the smaller, greyer translation. The pair
+// deliberately uses one script-aware font class (globals.css
+// font-display-pair: Fraunces for Latin, Noto Serif TC for Han) precisely so
+// the two class lists can be byte-identical.
+test("collection heading pair shares an identical class list (I18N-01)", () =>
+  check(async () => {
+    for (const locale of ["en", "zh-HK"]) {
+      const body = visible((await get(`/${locale}`)).html);
+      const alt = locale === "en" ? "zh-HK" : "en";
+      const first = elementClassOf(body, copy.piecesHeading[locale]);
+      const second = elementClassOf(body, copy.piecesHeading[alt]);
+      assert.equal(
+        first,
+        second,
+        `collection headings on /${locale} must have identical class lists`,
+      );
+      assert.match(first, /\btext-2xl\b/);
+      assert.match(first, /\bfont-display-pair\b/);
+    }
+  }));
+
+// Review finding 5: aria-current="page" belongs to the home nav link only
+// when the visitor is actually on the home route. The shared header cannot
+// know the path server-side (it lives in the [lang] layout), so the decision
+// is made client-side via usePathname (components/current-page-link.tsx) and
+// baked into the prerendered HTML.
+test("aria-current=\"page\" marks the home link only on the home route", () =>
+  check(async () => {
+    for (const locale of ["en", "zh-HK"]) {
+      const home = visible((await get(`/${locale}`)).html);
+      const product = visible(
+        (await get(`/${locale}/products/panthella-160-v3-beige`)).html,
+      );
+
+      assert.equal(
+        count(home, 'aria-current="page"'),
+        1,
+        `exactly one aria-current="page" on /${locale}`,
+      );
+      const idx = home.indexOf('aria-current="page"');
+      const tag = home.slice(home.lastIndexOf("<a", idx), home.indexOf(">", idx));
+      assert.ok(
+        tag.includes(`href="/${locale}"`),
+        `aria-current="page" must sit on the /${locale} home link, found: ${tag}`,
+      );
+      assert.equal(
+        count(product, 'aria-current="page"'),
+        0,
+        `no aria-current="page" on /${locale}/products/...`,
+      );
+    }
   }));
 
 // Lead language assertions bind the language attribute to the lead's own

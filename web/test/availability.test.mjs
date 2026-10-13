@@ -5,15 +5,19 @@
   Contract asserted (Vision.md DATA-01, STOCK-01, commitment 5b):
   - a confirmed response maps slug -> stock_total - stock_reserved
   - the request targets ${NEXT_PUBLIC_API_URL}/api/products with
-    next: { revalidate: 60 } (ISR, stale at most 60s)
+    cache: "no-store" (live or nothing; time-based ISR was rejected because a
+    cached page could serve stock numbers past its freshness bound)
   - ANY failure (env unset, network error, non-200, malformed JSON, unknown
     shape, unconfirmable stock) yields null, never a throw and never a number
     the page could mistake for confirmed stock
+
+  The route handler that publishes this client is covered by
+  test/availability-route.test.mjs.
 */
 
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { fetchAvailability } from "../lib/availability.ts";
+import { fetchAvailabilityLive } from "../lib/availability.ts";
 
 const originalFetch = globalThis.fetch;
 const originalEnv = process.env.NEXT_PUBLIC_API_URL;
@@ -77,7 +81,7 @@ test("confirmed rows map slug -> stock_total - stock_reserved", async () => {
     jsonResponse({ json: async () => validRows }),
   );
 
-  const result = await fetchAvailability();
+  const result = await fetchAvailabilityLive();
 
   assert.ok(result instanceof Map);
   assert.equal(result.size, 2);
@@ -86,14 +90,16 @@ test("confirmed rows map slug -> stock_total - stock_reserved", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://api.test/api/products");
-  assert.deepEqual(calls[0].init.next, { revalidate: 60 });
+  // Live or nothing: no ISR, no data-cache revalidation window.
+  assert.equal(calls[0].init.cache, "no-store");
+  assert.equal(calls[0].init.next, undefined);
 });
 
 test("trailing slash on the API base still builds a clean URL", async () => {
   process.env.NEXT_PUBLIC_API_URL = "https://api.test/";
   const calls = mockFetch(async () => jsonResponse({ json: async () => [] }));
 
-  const result = await fetchAvailability();
+  const result = await fetchAvailabilityLive();
 
   assert.ok(result instanceof Map);
   assert.equal(result.size, 0, "confirmed empty catalogue is an empty map");
@@ -106,7 +112,7 @@ test("NEXT_PUBLIC_API_URL unset: null without calling fetch", async () => {
     throw new Error("fetch must not be called without an API base");
   });
 
-  const result = await fetchAvailability();
+  const result = await fetchAvailabilityLive();
 
   assert.equal(result, null);
   assert.equal(calls.length, 0);
@@ -118,7 +124,7 @@ test("blank NEXT_PUBLIC_API_URL: null without calling fetch", async () => {
     throw new Error("fetch must not be called without an API base");
   });
 
-  assert.equal(await fetchAvailability(), null);
+  assert.equal(await fetchAvailabilityLive(), null);
   assert.equal(calls.length, 0);
 });
 
@@ -128,7 +134,7 @@ test("network rejection: null, never throws", async () => {
     throw new TypeError("fetch failed");
   });
 
-  assert.equal(await fetchAvailability(), null);
+  assert.equal(await fetchAvailabilityLive(), null);
 });
 
 test("non-200 response: null", async () => {
@@ -137,7 +143,7 @@ test("non-200 response: null", async () => {
     mockFetch(async () =>
       jsonResponse({ status, json: async () => validRows }),
     );
-    assert.equal(await fetchAvailability(), null, `status ${status} yields null`);
+    assert.equal(await fetchAvailabilityLive(), null, `status ${status} yields null`);
   }
 });
 
@@ -151,7 +157,7 @@ test("malformed JSON: null", async () => {
     }),
   );
 
-  assert.equal(await fetchAvailability(), null);
+  assert.equal(await fetchAvailabilityLive(), null);
 });
 
 test("non-array body: null", async () => {
@@ -160,7 +166,7 @@ test("non-array body: null", async () => {
     jsonResponse({ json: async () => ({ error: "database unavailable" }) }),
   );
 
-  assert.equal(await fetchAvailability(), null);
+  assert.equal(await fetchAvailabilityLive(), null);
 });
 
 test("malformed rows: null (nothing is confirmable)", async () => {
@@ -178,7 +184,7 @@ test("malformed rows: null (nothing is confirmable)", async () => {
   for (const bad of badRows) {
     mockFetch(async () => jsonResponse({ json: async () => [validRows[0], bad] }));
     assert.equal(
-      await fetchAvailability(),
+      await fetchAvailabilityLive(),
       null,
       `row ${JSON.stringify(bad)} yields null`,
     );
@@ -197,7 +203,7 @@ test("unconfirmable stock numbers: null", async () => {
   for (const row of badStock) {
     mockFetch(async () => jsonResponse({ json: async () => [row] }));
     assert.equal(
-      await fetchAvailability(),
+      await fetchAvailabilityLive(),
       null,
       `stock ${JSON.stringify(row)} yields null`,
     );

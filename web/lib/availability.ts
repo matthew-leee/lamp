@@ -1,22 +1,34 @@
 /**
- * Server-side availability client (Vision.md DATA-01, STOCK-01, commitment 5b).
+ * Server-side live availability client (Vision.md DATA-01, STOCK-01,
+ * commitment 5b).
  *
  * Postgres is authoritative for live availability; this module is the only
- * place the web tier reads it. `/api/products` responses come from the Rust
- * API (`api/src/main.rs`):
+ * place the web tier reads it, and only `app/api/availability/route.ts` calls
+ * it. `/api/products` responses come from the Rust API (`api/src/main.rs`):
  *
  *   [{ id, slug, brand, model, colourway, price_cents,
  *      stock_total, stock_reserved, created_at }]
  *
- * Contract (commitment 5b: never show unconfirmable stock counts): on ANY
- * failure, return `null` and never throw. A `null` result means "stock could
- * not be confirmed" and pages must not display stock numbers instead of it.
- * Nothing here fabricates, estimates or falls back to catalogue `units`.
+ * Fail-closed contract (commitment 5b: "the page must not display a stock
+ * count it cannot confirm, and the discrepancy is reported rather than
+ * silently served"): on ANY failure, return `null` and never throw. A `null`
+ * result means "stock could not be confirmed": the route turns it into a 503
+ * and a server-side log line, and the client badge shows the number-free
+ * "Confirming availability" state. Nothing here fabricates, estimates or
+ * falls back to catalogue `units`.
  *
- * Caching: `next: { revalidate: 60 }` asks Next's data cache for ISR with a
- * 60s freshness window, so a stale cached value is served for at most 60
- * seconds before revalidation (design commitment 5b).
+ * Caching: `cache: "no-store"` (review finding 1). Time-based ISR was tried
+ * and rejected: Next's response cache resolves the previous cache entry
+ * before the staleness check, so a cached page could serve stock numbers past
+ * the 60s freshness bound. SSR HTML therefore never contains stock numbers at
+ * all (see components/availability-context.tsx); this fetch always goes
+ * straight to the API, and the browser-side display bound is the 60s
+ * confirmation TTL in lib/availability-lifecycle.ts. The request also carries
+ * an explicit AbortController timeout (FETCH_TIMEOUT_MS, 10s), so a stalled
+ * API reaches the fail-closed branch instead of hanging forever.
  */
+
+import { FETCH_TIMEOUT_MS } from "./availability-lifecycle.ts";
 
 /** slug -> currently available units (stock_total - stock_reserved). */
 export type AvailabilityMap = Map<string, number>;
@@ -42,21 +54,27 @@ function parseRow(row: unknown): { slug: string; available: number } | null {
 }
 
 /**
- * Fetch live availability for every product.
+ * Fetch live availability for every product, uncached.
  *
  * @returns slug -> available units on a confirmed, fully valid response
  *   (an empty map means the API confirmed an empty catalogue), or `null`
  *   when anything at all prevents confirmation. Never throws.
  */
-export async function fetchAvailability(): Promise<AvailabilityMap | null> {
+export async function fetchAvailabilityLive(): Promise<AvailabilityMap | null> {
   const base = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (!base) return null;
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
   try {
     const response = await fetch(`${base.replace(/\/+$/, "")}/api/products`, {
-      // ISR: revalidate at most every 60s (commitment 5b).
-      next: { revalidate: 60 },
-    } as RequestInit & { next?: { revalidate: number } });
+      // Never cached: stock is confirmed live or not shown (commitment 5b).
+      cache: "no-store",
+      // A stalled API request is aborted at FETCH_TIMEOUT_MS and lands in the
+      // catch below, so a hang becomes a reported failure, not a frozen page.
+      signal: controller.signal,
+    });
 
     // Only a confirmed 200 carries stock data.
     if (response.status !== 200) return null;
@@ -74,7 +92,10 @@ export async function fetchAvailability(): Promise<AvailabilityMap | null> {
     }
     return availability;
   } catch {
-    // Network failure, malformed JSON, or any unexpected runtime error.
+    // Network failure, abort timeout, malformed JSON, or any unexpected
+    // runtime error.
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }

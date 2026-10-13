@@ -104,20 +104,46 @@ Copy `.env.example` to `.env.local` and fill in:
   (TRUST-02: source + checked date; `null` for the PH 1/1 Piano Table, whose
   UI says verification pending). Exports the types, `CATALOG`,
   `getProduct(slug)`, `totalUnits` and `DROP { totalPieces: 16 }`.
-- `lib/availability.ts` server-side availability client. `fetchAvailability()`
-  returns `Map<slug, available>` (`stock_total - stock_reserved`) from
-  `${NEXT_PUBLIC_API_URL}/api/products` with `next: { revalidate: 60 }` (ISR,
-  stale at most 60s). On any failure it returns `null`, never throws and
-  never fabricates numbers: pages must not display stock they cannot confirm.
-- Tests: `test/catalog.test.mjs` and `test/availability.test.mjs` are pure
-  unit tests (mocked `fetch`, no network); `test/routes.test.mjs` remains the
-  behavioral route suite.
+- `app/api/availability/route.ts` dynamic route handler (`force-dynamic`):
+  the browser-facing availability endpoint. `fetchAvailabilityLive()` reads
+  `${NEXT_PUBLIC_API_URL}/api/products` with `cache: "no-store"` and a 10s
+  abort timeout; 200 `{ ok: true, availability }` on confirmed data, 503
+  `{ ok: false }` on any failure, with a timestamped server-side error log
+  (the "discrepancy is reported" leg; full alerting is M3 ops).
+- `lib/availability-lifecycle.ts` pure client lifecycle (framework-free,
+  fully unit-tested): in-flight-only request dedupe (fulfilled results are
+  never retained as dedupe keys), 60s confirmation TTL (`CONFIRMED_TTL_MS`),
+  fail-closed on expiry or refresh failure, reconfirm on mount, client-side
+  navigation and visibility resume, 10s fetch timeout.
+- `components/availability-context.tsx` + `components/stock-badge.tsx`: the
+  provider wraps the locale layout and runs one shared session; badges show
+  `N left` / sold out / unconfirmed. Only a fresh confirmed count renders.
+- Tests: `test/catalog.test.mjs`, `test/availability.test.mjs`,
+  `test/availability-route.test.mjs` and
+  `test/availability-lifecycle.test.mjs` are unit suites (mocked fetch/clock,
+  no network); `test/routes.test.mjs` and `test/pages.test.mjs` are
+  server-based behavioural suites.
 
-## Scope of this skeleton (T1, extended by T2)
+## Live availability architecture (commitment 5b)
 
-Home placeholder per locale, locale routing, fonts, design tokens, env
-template, lint + typecheck wired. Not yet: product pages, cart, checkout,
-currency/price rendering (money will be integer minor units, never floats),
-GA/GSC wiring, SEO surface (hreflang, JSON-LD, sitemap), `output: "standalone"`
-for the Docker deploy. T2 added the catalogue + availability data layer
-above; not yet: product/cart/checkout UI that renders them.
+SSR HTML never contains a stock number. Static pages render a bilingual
+"confirming availability" placeholder; the client provider fetches
+`/api/availability` (which reads the Rust API live, no-store) and badges swap
+to a real count only on a fresh confirmation. A displayed count expires after
+60 seconds: the badge returns to confirming and reconfirms; if any refresh
+fails the count disappears (fail-closed) and the route handler logs the
+discrepancy server-side. Time-based ISR was rejected for stock because Next
+serves the stale page while revalidating, which can show a number older than
+the 60-second bound. On-demand invalidation on stock change and ops alerting
+are M3 gaps.
+
+## Scope
+
+T1: locale routing, fonts, design tokens, env template, lint + typecheck.
+T2: catalogue + money data layer. T3: editorial homepage, 16 static product
+story pages (8 SKUs x 2 locales) with the trust architecture (disclosure,
+pending warranty copy, labelled reference pricing, no delivery promises,
+verified electrical facts, live stock badge), placeholder art with the
+lights on/off toggle, WhatsApp enquiry (env-gated). Not yet: cart/checkout
+and payment (M1 money path), GA/GSC wiring, SEO surface (hreflang, JSON-LD,
+sitemap; T4), `output: "standalone"` for the Docker deploy.

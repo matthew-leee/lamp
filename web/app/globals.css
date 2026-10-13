@@ -49,6 +49,14 @@
   --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
   --font-display-tc: var(--font-noto-serif-tc), "Songti TC", "PMingLiU", serif;
   --font-sans-tc: var(--font-noto-sans-tc), "PingFang TC", "Microsoft JhengHei", sans-serif;
+  /*
+    Script-aware display stack for bilingual heading PAIRS (I18N-01): Latin
+    renders in Fraunces and Han in Noto Serif TC from one class, so both
+    language headings can carry a literally identical class list
+    (app/[lang]/page.tsx collection headings).
+  */
+  --font-display-pair: var(--font-fraunces), var(--font-noto-serif-tc),
+    "Times New Roman", serif;
 }
 
 body {
