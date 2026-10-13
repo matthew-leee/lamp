@@ -1,0 +1,2 @@
+# TypeScript incremental build info (root .gitignore covers node_modules/, .next/, .env).
+*.tsbuildinfo

@@ -18,6 +18,7 @@ parallel-imported, in stock in Hong Kong, roughly 15% under authorised-dealer li
 ```bash
 docker compose up db        # Postgres on :5432
 cd api && cargo run         # API on :8080 (needs DATABASE_URL)
+cd web && npm ci            # install from lockfile (first time)
 cd web && npm run dev       # web on :3000
 ```
 
@@ -25,7 +26,7 @@ Checks before commit:
 
 ```bash
 cd api && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-cd web && npm run build
+cd web && npm run build && npm run typecheck && npm run lint && npm run test
 ```
 
 ## Business documents

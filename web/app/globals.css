@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/*
+  HAVN design tokens (T1 skeleton).
+
+  Source of truth for the visual register: docs/designs/havn-opening-drop.md
+  ("Frontend Design Direction") plus Vision.md BRAND-01.
+
+  Rules encoded here:
+  - Warm neutrals (bone/ecru) for surfaces, deep charcoal for text.
+  - The only saturated colour anywhere on the site is the lamp glow accent.
+  - No gradients anywhere: never add linear-gradient/radial-gradient fills.
+  - Trust copy (price, warranty, independent-seller disclosure, delivery,
+    returns) renders in charcoal on bone at 14.7:1, or glow on charcoal at
+    7.5:1. Both pass WCAG AA. Never use low-contrast grey for trust copy.
+  - Motion is hover/transition only (MOTION_INTENSITY: 2).
+*/
+
+@theme {
+  /* Warm neutrals */
+  --color-bone: #f7f3ec;
+  --color-ecru: #efe8dc;
+  --color-sand: #e3d8c6;
+  --color-linen: #cfc2ab;
+
+  /* Deep charcoal (primary text, 14.7:1 on bone) and its AA-safe softer
+     tone (8.6:1 on bone) */
+  --color-charcoal: #22201c;
+  --color-ink-soft: #4a453d;
+
+  /*
+    Lamp glow: the single saturated accent.
+    Text usage is safe on charcoal (7.5:1). On bone it is 2.0:1, so there it
+    is ornament only (rules, dots, hover borders), never text or icons that
+    carry meaning.
+  */
+  --color-glow: #e9a23b;
+  --color-glow-ember: #b97a1f;
+}
+
+/*
+  Type pairing (docs/designs/havn-opening-drop.md):
+  display serif + grotesque for Latin (Fraunces + Space Grotesk),
+  Noto Serif TC + Noto Sans TC for Chinese. Font variables are injected on
+  <html> by next/font/google in app/[lang]/layout.tsx.
+*/
+@theme inline {
+  --font-display: var(--font-fraunces), "Times New Roman", serif;
+  --font-sans: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-display-tc: var(--font-noto-serif-tc), "Songti TC", "PMingLiU", serif;
+  --font-sans-tc: var(--font-noto-sans-tc), "PingFang TC", "Microsoft JhengHei", sans-serif;
+}
+
+body {
+  background-color: var(--color-bone);
+  color: var(--color-charcoal);
+}
