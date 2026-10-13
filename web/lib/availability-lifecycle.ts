@@ -29,16 +29,31 @@
  */
 
 import type { AvailabilityMap } from "./availability.ts";
+import {
+  availabilityTtlMs,
+  fetchTimeoutMs,
+} from "./config.ts";
 
-/** How long a confirmed stock number may be displayed (60s bound). */
-export const CONFIRMED_TTL_MS = 60_000;
+/**
+ * How long a confirmed stock number may be displayed. Default 60s (the
+ * commitment 5b bound), env-tunable via NEXT_PUBLIC_AVAILABILITY_TTL_MS
+ * within 1s..60s (ENV-01 operational knob; the 60s cap IS the 5b bound,
+ * so the knob can only tighten it, never loosen it).
+ */
+export const CONFIRMED_TTL_MS = availabilityTtlMs();
 
 /**
  * Hard timeout for one availability request (client route fetch and the
  * server-side API client): a stalled request is aborted and treated as a
- * failure instead of hanging.
+ * failure instead of hanging. Default 10s, env-tunable via
+ * NEXT_PUBLIC_FETCH_TIMEOUT_MS (100ms..120s).
+ *
+ * Browser wiring (ENV-01): Next inlines only statically named public env
+ * accesses into client bundles, so the client-side values are resolved on
+ * the SERVER (lib/config.ts) and passed down as props through the provider
+ * (components/availability-context.tsx); the browser never reads env itself.
  */
-export const FETCH_TIMEOUT_MS = 10_000;
+export const FETCH_TIMEOUT_MS = fetchTimeoutMs();
 
 /** Events that re-check freshness (and may trigger a refresh). */
 export type Trigger = "mount" | "navigate" | "visibility-visible" | "tick";
@@ -81,25 +96,33 @@ export const INITIAL_RECORD: LifecycleRecord = Object.freeze({
 
 /**
  * Is the confirmation behind `confirmedAt` still displayable at `now`?
- * Fresh strictly under CONFIRMED_TTL_MS: at the TTL boundary the number is
- * already stale (fail-closed).
+ * Fresh strictly under `ttlMs` (default CONFIRMED_TTL_MS): at the TTL
+ * boundary the number is already stale (fail-closed).
  */
-export function isFresh(now: number, confirmedAt: number | null): boolean {
+export function isFresh(
+  now: number,
+  confirmedAt: number | null,
+  ttlMs: number = CONFIRMED_TTL_MS,
+): boolean {
   if (confirmedAt === null) return false;
   const elapsed = now - confirmedAt;
   // Fail-closed on clock rollback: negative elapsed is treated as stale (a
   // refetch follows), never as extra freshness. The default clock is
   // performance.now(), which is monotonic, so this is a defensive net.
-  return elapsed >= 0 && elapsed < CONFIRMED_TTL_MS;
+  return elapsed >= 0 && elapsed < ttlMs;
 }
 
 /**
  * The desired display state for a record at a point in time. Pure render-time
  * gate: a number is displayable only while its confirmation is fresh.
  */
-export function desiredState(record: LifecycleRecord, now: number): DesiredState {
+export function desiredState(
+  record: LifecycleRecord,
+  now: number,
+  ttlMs: number = CONFIRMED_TTL_MS,
+): DesiredState {
   if (record.result.kind === "confirmed") {
-    return isFresh(now, record.confirmedAt)
+    return isFresh(now, record.confirmedAt, ttlMs)
       ? { status: "confirmed", map: record.result.map }
       : { status: "confirming" };
   }
@@ -123,7 +146,9 @@ export function nextLifecycle(input: {
   trigger: Trigger;
   lastConfirmedAt: number | null;
   lastResult: LastResult;
+  ttlMs?: number;
 }): LifecycleDecision {
+  const ttlMs = input.ttlMs ?? CONFIRMED_TTL_MS;
   const record: LifecycleRecord = {
     result: input.lastResult,
     confirmedAt: input.lastConfirmedAt,
@@ -131,8 +156,8 @@ export function nextLifecycle(input: {
   const fetch =
     input.trigger === "mount" ||
     input.lastResult.kind !== "confirmed" ||
-    !isFresh(input.now, input.lastConfirmedAt);
-  return { state: desiredState(record, input.now), fetch };
+    !isFresh(input.now, input.lastConfirmedAt, ttlMs);
+  return { state: desiredState(record, input.now, ttlMs), fetch };
 }
 
 /**
@@ -271,6 +296,8 @@ export type SessionDeps = {
   now?: () => number;
   schedule?: (callback: () => void, delayMs: number) => TimerHandle;
   cancel?: (handle: TimerHandle) => void;
+  /** Confirmation TTL override (the server-resolved env knob). */
+  ttlMs?: number;
 };
 
 /** The lifecycle session the React provider wraps. */
@@ -311,6 +338,7 @@ export function createAvailabilitySession(
 ): AvailabilitySession {
   const fetchAvailability =
     deps.fetchAvailability ?? createRouteFetcher();
+  const ttlMs = deps.ttlMs ?? CONFIRMED_TTL_MS;
   const now =
     deps.now ??
     (() =>
@@ -323,7 +351,7 @@ export function createAvailabilitySession(
       clearTimeout(handle as ReturnType<typeof setTimeout>));
 
   let record: LifecycleRecord = INITIAL_RECORD;
-  let state: DesiredState = desiredState(record, now());
+  let state: DesiredState = desiredState(record, now(), ttlMs);
   const listeners = new Set<() => void>();
   /** A settle handler is attached to the shared request for this cycle. */
   let settling = false;
@@ -355,7 +383,7 @@ export function createAvailabilitySession(
     if (record.result.kind !== "confirmed" || record.confirmedAt === null) {
       return;
     }
-    const delay = record.confirmedAt + CONFIRMED_TTL_MS - now();
+    const delay = record.confirmedAt + ttlMs - now();
     if (delay <= 0) return;
     timer = schedule(() => {
       timer = null;
@@ -375,6 +403,7 @@ export function createAvailabilitySession(
       trigger: event,
       lastConfirmedAt: record.confirmedAt,
       lastResult: record.result,
+      ttlMs,
     });
     setState(decision.state);
     if (decision.fetch && !settling) {
@@ -385,7 +414,7 @@ export function createAvailabilitySession(
         // settlement must not mutate, notify or re-arm.
         if (stopped) return;
         record = applyFetchOutcome(outcome, now());
-        setState(desiredState(record, now()));
+        setState(desiredState(record, now(), ttlMs));
         rearm();
       });
     }
@@ -394,7 +423,7 @@ export function createAvailabilitySession(
 
   return {
     getRecord: () => record,
-    desiredAt: (at?: number) => desiredState(record, at ?? now()),
+    desiredAt: (at?: number) => desiredState(record, at ?? now(), ttlMs),
     subscribe(listener: () => void): () => void {
       listeners.add(listener);
       return () => {

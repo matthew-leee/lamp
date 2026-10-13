@@ -1,38 +1,35 @@
 /**
- * Shared bilingual UI copy for the HAVN storefront (Vision.md I18N-01).
+ * Chrome labels and pure copy formatters for the storefront.
  *
- * Every user-facing string that appears in more than one place lives here, so
- * pages and components never carry their own scattered duplicates. Copy rules
- * encoded in this file:
+ * SPLIT between code and data (DATA-02 + the README "Configuration and data
+ * principles"):
+ * - **Chrome stays here**: navigation labels, availability states, section
+ *   headings, button labels. They name UI parts, carry no company data, and
+ *   belong to the interface, not the company.
+ * - **Company copy lives in the database**: identity, positioning, policy and
+ *   meta copy (hero, disclosure, warranty, reference-price pending note,
+ *   enquiry templates, page metadata, 404 copy) is seeded into `site_content`
+ *   and fetched at build time via lib/catalog-client.ts. Nothing brand- or
+ *   data-bearing is hardcoded here.
  *
- * - Traditional Chinese and English are first-class and equal weight: paired
- *   passages are typed `Bilingual = Record<Locale, string>` (both locales, one
- *   source of truth) and rendered in both languages on every page, each
- *   passage with its own lang attribute (WCAG 3.1.2 Language of Parts).
- * - Trust copy (TRUST-01, TRUST-02) states only verified facts in HAVN's own
- *   words. Warranty wording is a founder open item, so it renders honest
- *   pending copy and never invented terms. Reference prices carry a source
- *   and a checked date; when none is verified the UI says verification is
- *   pending instead of inventing one.
- * - Availability copy policy (commitment 5b + review finding 2): the stock
- *   badge's confirmed "N left" state is the ONLY per-SKU availability claim on
- *   the site. Nothing here states that a SKU is "in stock" unconditionally.
- *   The single drop-level location fact (the whole drop is physically in Hong
- *   Kong) lives in the homepage hero lead only, worded as a fact about the
- *   whole drop. Commitment 7: nothing here states a delivery duration,
- *   because none has been decided.
- * - No em-dashes (U+2014) in user-facing copy; hyphens and CJK punctuation
- *   instead. No apostrophes in user-facing copy either (SSR escapes them as
- *   entities, which makes strict copy assertions fragile).
+ * Formatters here are pure functions over fetched data (CatalogueProduct,
+ * ReferencePrice, SiteContent) so they stay unit-testable without a network.
  *
- * Prices are formatted only through lib/money.ts (formatHKD).
+ * Copy rules preserved: paired passages are typed Bilingual (both locales, one
+ * source of truth) and rendered in both languages on every page with lang
+ * attributes (WCAG 3.1.2). No em-dashes; no apostrophes in user-facing copy.
+ * Prices format only through lib/money.ts with the configured currency.
  */
 
-import type { CatalogProduct, LocalizedText, ReferencePrice } from "./catalog";
-// Explicit .ts extension so Node can import this module directly in unit
-// tests (test/ui-copy.test.mjs) alongside Next (allowImportingTsExtensions).
-import { formatHKD } from "./money.ts";
-import type { Locale } from "./i18n";
+import { renderTemplate } from "./config.ts";
+import {
+  contentValue,
+  type CatalogueProduct,
+  type ReferencePrice,
+  type SiteContent,
+} from "./catalog-client.ts";
+import { formatMoney } from "./money.ts";
+import { locales, type Locale } from "./i18n.ts";
 
 /** A passage carried in both locales (equal weight everywhere). */
 export type Bilingual = Record<Locale, string>;
@@ -43,26 +40,44 @@ export type BilingualFormatter<Args extends readonly unknown[]> = Record<
   (...args: Args) => string
 >;
 
-/** Read one language of a bilingual pair. */
+/**
+ * Read one language of a bilingual pair, with graceful fallback: a locale
+ * without its own chrome label falls back to the first defined entry rather
+ * than rendering blank. The default pair (en, zh-HK) is fully covered; a
+ * company running a different language pair adds their labels alongside
+ * (documented white-label step, like restyling the CSS tokens).
+ */
 export function pick(text: Bilingual, locale: Locale): string {
-  return text[locale];
+  const value = text[locale];
+  if (typeof value === "string") return value;
+  const fallback = text["en"] ?? Object.values(text)[0];
+  if (fallback === undefined) {
+    throw new RangeError(`pick: empty bilingual pair for locale ${locale}`);
+  }
+  return fallback;
 }
 
 /**
- * Read one language of a catalog `LocalizedText` pair (its keys are `en` /
- * `zhHK`, mirroring lib/catalog.ts).
+ * Apply a locale-parameterised formatter in BOTH configured locales at once
+ * (equal-weight pair). Falls back per locale like `pick`.
  */
-export function pickLocalized(text: LocalizedText, locale: Locale): string {
-  return locale === "en" ? text.en : text.zhHK;
-}
-
-/** Adapt a catalog pair to a UI pair (same two passages, route-locale keys). */
-export function localizedToBilingual(text: LocalizedText): Bilingual {
-  return { en: text.en, "zh-HK": text.zhHK };
+export function formatBoth<Args extends readonly unknown[]>(
+  formatter: BilingualFormatter<Args>,
+  ...args: Args
+): Bilingual {
+  const out: Bilingual = {};
+  for (const locale of locales) {
+    const fn = formatter[locale] ?? formatter["en"];
+    if (fn === undefined) {
+      throw new RangeError(`formatBoth: no formatter for locale ${locale}`);
+    }
+    out[locale] = fn(...args);
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
-/* Navigation and chrome                                               */
+/* Navigation and chrome labels                                        */
 /* ------------------------------------------------------------------ */
 
 export const navMainLabel: Bilingual = {
@@ -80,70 +95,13 @@ export const languageLabel: Bilingual = {
   "zh-HK": "語言",
 };
 
-/** Endonym per locale: each language names itself in its own language. */
-export const languageNames: Bilingual = {
-  en: "English",
-  "zh-HK": "繁體中文",
-};
-
 export const backToDrop: Bilingual = {
   en: "Back to the opening drop",
   "zh-HK": "返回首發登場",
 };
 
 /* ------------------------------------------------------------------ */
-/* Homepage                                                            */
-/* ------------------------------------------------------------------ */
-
-export const heroEyebrow: Bilingual = {
-  en: "The opening drop",
-  "zh-HK": "首發登場",
-};
-
-/*
-  Brand statement. The paired (secondary) line carries the HAVN name so each
-  language reads as a full sentence when it is not the page language. The
-  strings are pinned: the route tests bind the language attributes to these
-  exact prefixes (test/routes.test.mjs, language of parts).
-
-  The second sentence is the site's only availability-location fact: it is
-  worded about the whole opening drop ("the whole opening drop is physically
-  in Hong Kong"), never as per-SKU stock, which only the stock badge may
-  claim (review finding 2).
-*/
-export const heroLead: Bilingual = {
-  en: "Curated designer homeware. The whole opening drop is physically in Hong Kong.",
-  "zh-HK": "精選設計家居。整批首發燈飾俱在香港。",
-};
-
-export const heroLeadPaired: Bilingual = {
-  en: "HAVN, curated designer homeware. The whole opening drop is physically in Hong Kong.",
-  "zh-HK": "HAVN 精選設計家居。整批首發燈飾俱在香港。",
-};
-
-/* Drop framing (DROP-01: a numbered opening drop with real scarcity). */
-export const dropFraming: Bilingual = {
-  en: "The opening drop: 16 numbered pieces of Louis Poulsen lighting.",
-  "zh-HK": "首發登場：16 件編號 Louis Poulsen 燈飾。",
-};
-
-export const piecesHeading: Bilingual = {
-  en: "The pieces in the drop",
-  "zh-HK": "首發燈飾系列",
-};
-
-export const trustStripLabel: Bilingual = {
-  en: "Independent seller",
-  "zh-HK": "獨立賣家",
-};
-
-export const enquiryIntro: Bilingual = {
-  en: "Questions about a piece? Ask on WhatsApp.",
-  "zh-HK": "對某件燈飾有疑問？WhatsApp 查詢。",
-};
-
-/* ------------------------------------------------------------------ */
-/* Product page: trust block (TRUST-01, TRUST-02)                      */
+/* Trust block labels (the passages themselves are site content)        */
 /* ------------------------------------------------------------------ */
 
 export const priceLabel: Bilingual = {
@@ -151,37 +109,21 @@ export const priceLabel: Bilingual = {
   "zh-HK": "售價",
 };
 
-/* (a) Independent-seller disclosure. The facts are fixed by TRUST-01 and
-   LEGAL-01: never imply authorised-dealer status, trademarks to their owners. */
 export const disclosureLabel: Bilingual = {
   en: "Independent seller",
   "zh-HK": "獨立賣家",
 };
 
-export const disclosure: Bilingual = {
-  en: "HAVN is an independent seller and is not an authorised Louis Poulsen dealer. All trademarks belong to their owners.",
-  "zh-HK":
-    "HAVN 為獨立賣家，並非 Louis Poulsen 授權經銷商。所有商標均屬其擁有者。",
+export const trustStripLabel: Bilingual = {
+  en: "Independent seller",
+  "zh-HK": "獨立賣家",
 };
 
-/* (b) Warranty. The offered terms are a founder open item (Vision.md open
-   item 1): this is honest pending copy in HAVN's own words, never a quoted or
-   invented manufacturer warranty. The pending phrase "still being finalised"
-   is asserted by test/pages.test.mjs. */
 export const warrantyLabel: Bilingual = {
   en: "Warranty",
   "zh-HK": "保養",
 };
 
-export const warrantyPending: Bilingual = {
-  en: "HAVN gives its own warranty on every piece it sells. The exact terms are still being finalised and will be published here before the first sale, in HAVN wording. The Louis Poulsen manufacturer warranty is never quoted as the HAVN warranty.",
-  "zh-HK":
-    "HAVN 為所售出的每件燈飾提供自家保養。具體條款仍在釐定中，將以 HAVN 自己的用詞於首宗銷售前在此公佈。Louis Poulsen 的原廠保養絕不會被引用為 HAVN 的保養條款。",
-};
-
-/* (c) Labelled reference price (TRUST-02: source + checked date). When the
-   catalogue holds no verified reference, the UI says verification is pending
-   instead of fabricating one. */
 export const referenceLabel: Bilingual = {
   en: "Reference price, for comparison",
   "zh-HK": "參考價，作比較",
@@ -192,25 +134,11 @@ export const referenceSourceLabel: Bilingual = {
   "zh-HK": "來源",
 };
 
-export const referencePending: Bilingual = {
-  en: "Reference price: verification pending. A comparison price is published here only once a real source has been checked and the check date recorded.",
-  "zh-HK":
-    "參考價：核實中。只有在核實真實來源並記錄查核日期後，比較價才會在此公佈。",
-};
-
-/* (d) Availability: intentionally no label and no sentence here (review
-   finding 2). The product page trust block has no availability entry: the
-   confirmed "N left" badge beside the price is the only per-SKU availability
-   claim, and the drop-level Hong Kong fact lives in the homepage hero lead
-   only. */
-
-/* (e) Electrical copy comes from the catalogue (verified facts only). */
 export const electricalLabel: Bilingual = {
   en: "Electrical",
   "zh-HK": "電器規格",
 };
 
-/* Below the fold: the heritage story (the lookbook inside the shop). */
 export const heritageLabel: Bilingual = {
   en: "Heritage",
   "zh-HK": "設計傳承",
@@ -225,9 +153,6 @@ export const enquiryButtonLabel: Bilingual = {
   "zh-HK": "WhatsApp 查詢",
 };
 
-/* The one signature interaction (lights on / lights off). The accessible name
-   is deliberately bilingual (task requirement) and state is carried by
-   aria-pressed, so the label itself stays static. */
 export const lightsToggleLabel: Bilingual = {
   en: "Lights on / lights off",
   "zh-HK": "開燈 / 關燈",
@@ -238,14 +163,6 @@ export const artPlaceholderNote: Bilingual = {
   "zh-HK": "暫代圖片",
 };
 
-/** Accessible name for a placeholder artwork of `subject`. */
-export function artLabel(subject: Bilingual): Bilingual {
-  return {
-    en: `${artPlaceholderNote.en} for ${subject.en}`,
-    "zh-HK": `${subject["zh-HK"]} 的${artPlaceholderNote["zh-HK"]}`,
-  };
-}
-
 /* ------------------------------------------------------------------ */
 /* Stock badge labels (never a number in the unconfirmed state)        */
 /* ------------------------------------------------------------------ */
@@ -254,6 +171,11 @@ export const stockLeft: BilingualFormatter<[n: number]> = {
   en: (n: number) => `${n} left`,
   "zh-HK": (n: number) => `尚餘 ${n} 件`,
 };
+
+/** The confirmed-count label pair for `n` units left, both locales. */
+export function stockLeftPair(n: number): Bilingual {
+  return formatBoth(stockLeft, n);
+}
 
 export const stockSoldOut: Bilingual = {
   en: "Sold out",
@@ -266,86 +188,135 @@ export const stockUnconfirmed: Bilingual = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Formatting helpers (all copy assembly for catalog data lives here)  */
+/* Formatters over fetched data                                        */
 /* ------------------------------------------------------------------ */
 
-/** Model + colourway display name for one SKU. */
-export function productDisplay(product: CatalogProduct): Bilingual {
-  return {
-    en: `${product.model} (${product.colourway.en})`,
-    "zh-HK": `${product.modelAlt}（${product.colourway.zhHK}）`,
-  };
-}
-
-/** Neutral meta description naming a product (review finding 2): a numbered
-    piece of the opening drop from an independent seller. It must never claim
-    the SKU is "in stock"; that claim belongs to the confirmed stock badge. */
-export function productDescription(subject: Bilingual): Bilingual {
-  return {
-    en: `${subject.en}. A numbered piece of the HAVN opening drop of Louis Poulsen lighting. HAVN is an independent seller.`,
-    "zh-HK": `${subject["zh-HK"]}，HAVN 首發登場的編號 Louis Poulsen 燈飾。HAVN 為獨立賣家。`,
-  };
+/**
+ * Display name of one SKU in one locale: model + colourway from content.
+ * The first (Latin-script) locale joins with ASCII parentheses, the second
+ * (CJK) locale with full-width parentheses, matching each script's
+ * convention (the seeded zh-HK copy expects full-width).
+ */
+export function productDisplay(
+  product: CatalogueProduct,
+  locale: string,
+): string {
+  const content = product.content[locale] ?? {};
+  const model = content.modelAlt ?? product.model;
+  const colourway = content.colourway ?? "";
+  if (colourway === "") return model;
+  return locale === locales[1]
+    ? `${model}（${colourway}）`
+    : `${model} (${colourway})`;
 }
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
 /**
- * Drop numbering (DROP-01): "Piece 03 of 16" for a single-piece SKU and
- * "Pieces 03-07 of 16" for a multi-unit SKU.
+ * Drop numbering (DROP-01) in one locale. Contiguous piece runs render as
+ * ranges ("Pieces 03-07 of 16"); a non-contiguous set renders as an explicit
+ * comma list ("Pieces 03, 07 of 16") — a span must never claim pieces the
+ * SKU does not own.
  */
 export function dropNumbering(
   dropNumbers: readonly number[],
   totalPieces: number,
-): Bilingual {
+  locale: string,
+): string {
   const sorted = [...dropNumbers].sort((a, b) => a - b);
   const first = sorted[0];
   const last = sorted[sorted.length - 1];
   if (first === undefined || last === undefined) {
     throw new RangeError("dropNumbering: dropNumbers must not be empty");
   }
+  if (totalPieces < 1 || !Number.isInteger(totalPieces)) {
+    throw new RangeError("dropNumbering: totalPieces must be a positive integer");
+  }
 
-  const range = first === last ? pad2(first) : `${pad2(first)}-${pad2(last)}`;
-  return first === last
-    ? {
-        en: `Piece ${range} of ${totalPieces}`,
-        "zh-HK": `第 ${range} 件，共 ${totalPieces} 件`,
-      }
-    : {
-        en: `Pieces ${range} of ${totalPieces}`,
-        "zh-HK": `第 ${range} 件，共 ${totalPieces} 件`,
-      };
-}
-
-/** Labelled reference price range ("HK$1,900 to HK$2,800"). */
-export function referenceRange(ref: ReferencePrice): Bilingual {
-  const min = formatHKD(ref.minCents);
-  const max = formatHKD(ref.maxCents);
-  return min === max
-    ? { en: min, "zh-HK": max }
-    : { en: `${min} to ${max}`, "zh-HK": `${min} 至 ${max}` };
-}
-
-/** The checked date of a labelled reference price. */
-export function referenceChecked(ref: ReferencePrice): Bilingual {
-  return {
-    en: `checked ${ref.checkedAt}`,
-    "zh-HK": `查核日期 ${ref.checkedAt}`,
-  };
+  const contiguous = sorted.every(
+    (n, i) => i === 0 || n === sorted[i - 1]! + 1,
+  );
+  const range = contiguous
+    ? first === last
+      ? pad2(first)
+      : `${pad2(first)}-${pad2(last)}`
+    : sorted.map(pad2).join(", ");
+  const pieceWord = first === last ? "Piece" : "Pieces";
+  if (locale === locales[1]) {
+    return `第 ${range} 件，共 ${totalPieces} 件`;
+  }
+  return `${pieceWord} ${range} of ${totalPieces}`;
 }
 
 /**
- * Prefilled WhatsApp enquiry naming the subject (a product, or the drop on
- * the homepage). Bilingual in one message: both languages, one enquiry.
+ * Labelled reference price range in `currency` for one locale
+ * ("HK$1,900 to HK$2,800" / "HK$1,900 至 HK$2,800").
  */
-export function enquiryMessage(subject: Bilingual): string {
-  return [
-    `Hi HAVN, I would like to ask about ${subject.en}.`,
-    `你好 HAVN，我想查詢 ${subject["zh-HK"]}。`,
-  ].join("\n\n");
+export function referenceRange(
+  ref: ReferencePrice,
+  currency: string,
+  locale: string,
+): string {
+  const min = formatMoney(ref.minPriceCents, currency);
+  const max = formatMoney(ref.maxPriceCents, currency);
+  if (min === max) return min;
+  return locale === locales[1] ? `${min} 至 ${max}` : `${min} to ${max}`;
 }
 
-/** Generic enquiry subject for entries that name no single product. */
-export const dropEnquirySubject: Bilingual = {
-  en: "the opening drop of Louis Poulsen lighting",
-  "zh-HK": "Louis Poulsen 首發燈飾系列",
-};
+/** The checked date of a labelled reference price, one locale. */
+export function referenceChecked(ref: ReferencePrice, locale: string): string {
+  return locale === locales[1]
+    ? `查核日期 ${ref.checkedOn}`
+    : `checked ${ref.checkedOn}`;
+}
+
+/** Accessible name for a placeholder artwork of `subject` in one locale.
+    Composition style is attached to the configured pair (Latin first, CJK
+    second); placeholder art is development-phase chrome replaced by
+    photography before launch. */
+export function artLabel(subject: Bilingual, locale: string): string {
+  if (locale === locales[1]) {
+    return `${subject[locales[1]]} 的${artPlaceholderNote[locales[1]]}`;
+  }
+  return `${artPlaceholderNote[locales[0]]} for ${subject[locales[0]]}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Site-content compositions (templates rendered with the resolved     */
+/* brand; templates and copy come from the `site_content` table)       */
+/* ------------------------------------------------------------------ */
+
+/** Neutral product meta description (never an availability claim). */
+export function productMetaDescription(
+  content: SiteContent,
+  brand: string,
+  subject: string,
+  locale: string,
+): string {
+  const template = contentValue(
+    content,
+    "meta.product.descriptionTemplate",
+    locale,
+  );
+  return renderTemplate(template, { brand, subject });
+}
+
+/**
+ * Prefilled WhatsApp enquiry message, bilingual in one message: both
+ * languages, one enquiry (the enquiry.messageTemplate copy per locale,
+ * rendered with the brand and the subject).
+ */
+export function buildEnquiryMessage(
+  content: SiteContent,
+  brand: string,
+  subject: Bilingual,
+): string {
+  return locales
+    .map((locale) =>
+      renderTemplate(
+        contentValue(content, "enquiry.messageTemplate", locale),
+        { brand, subject: subject[locale] },
+      ),
+    )
+    .join("\n\n");
+}

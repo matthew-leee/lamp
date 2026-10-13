@@ -1,21 +1,23 @@
 /**
  * Shared site header, rendered on every locale page from app/[lang]/layout.tsx.
  *
- * - HAVN wordmark linking to the current locale home.
+ * - Wordmark (the brand name, env/settings-supplied per NAME-01 — never a
+ *   hardcoded literal) linking to the current locale home. The native-script
+ *   brand form shows on the second configured locale when one is configured;
+ *   otherwise the Latin name serves both.
  * - Locale-aware nav (Home / 首頁), both languages at equal weight (I18N-01).
- * - Language switcher whose accessible name is localized per locale ("Language"
- *   / "語言"); each language name is its own endonym with a lang attribute
- *   (WCAG 3.1.2 Language of Parts). The switcher links to the two locale home
- *   routes because both language editions are whole routes, not overlays.
+ * - Language switcher whose accessible name is localized per locale; each
+ *   language name is its own endonym with a lang attribute (WCAG 3.1.2
+ *   Language of Parts). The switcher links to the two locale home routes
+ *   because both language editions are whole routes, not overlays.
  */
 
 import Link from "next/link";
 
 import CurrentPageLink from "./current-page-link";
-import { htmlLang, locales, type Locale } from "@/lib/i18n";
+import { htmlLang, languageNames, locales, type Locale } from "@/lib/i18n";
 import {
   languageLabel,
-  languageNames,
   navHome,
   navMainLabel,
   pick,
@@ -24,9 +26,23 @@ import { familyClass } from "./bilingual";
 
 interface SiteHeaderProps {
   lang: Locale;
+  /** Resolved brand name (lib/config.ts; env default, settings override). */
+  brandName: string;
+  /** Native-script brand form, or null when the brand has none. */
+  brandNameNative: string | null;
 }
 
-export default function SiteHeader({ lang }: SiteHeaderProps) {
+export default function SiteHeader({
+  lang,
+  brandName,
+  brandNameNative,
+}: SiteHeaderProps) {
+  // The native wordmark serves the second (native-script) locale when the
+  // brand has one; the Latin wordmark serves the first and is the fallback.
+  const wordmark = brandNameNative !== null && lang === locales[1]
+    ? brandNameNative
+    : brandName;
+
   return (
     <header className="border-b border-sand">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-baseline justify-between gap-x-10 gap-y-4 px-6 py-6 sm:px-10">
@@ -34,7 +50,7 @@ export default function SiteHeader({ lang }: SiteHeaderProps) {
           href={`/${lang}`}
           className={`text-xl tracking-[0.28em] text-charcoal ${familyClass(lang, "sans")}`}
         >
-          HAVN
+          {wordmark}
         </Link>
 
         <div className="flex flex-wrap items-baseline gap-x-10 gap-y-3">
@@ -47,11 +63,11 @@ export default function SiteHeader({ lang }: SiteHeaderProps) {
               href={`/${lang}`}
               className={`text-sm text-charcoal transition-colors duration-200 hover:text-ink-soft ${familyClass(lang, "sans")}`}
             >
-              <span lang={htmlLang.en}>{navHome.en}</span>
+              <span lang={htmlLang[locales[0]]}>{pick(navHome, locales[0])}</span>
               <span aria-hidden="true" className="px-2 text-linen">
                 /
               </span>
-              <span lang={htmlLang["zh-HK"]}>{navHome["zh-HK"]}</span>
+              <span lang={htmlLang[locales[1]]}>{pick(navHome, locales[1])}</span>
             </CurrentPageLink>
           </nav>
 

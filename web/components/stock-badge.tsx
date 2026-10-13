@@ -21,7 +21,8 @@ import { useAvailability } from "./availability-context";
 import { altLocale, htmlLang, type Locale } from "@/lib/i18n";
 import { decideStock } from "@/lib/stock";
 import {
-  stockLeft,
+  pick,
+  stockLeftPair,
   stockSoldOut,
   stockUnconfirmed,
   type Bilingual,
@@ -52,10 +53,7 @@ export default function StockBadge({
 
   const pair: Bilingual =
     state.kind === "left"
-      ? {
-          en: stockLeft.en(state.n),
-          "zh-HK": stockLeft["zh-HK"](state.n),
-        }
+      ? stockLeftPair(state.n)
       : state.kind === "soldout"
         ? stockSoldOut
         : stockUnconfirmed;
@@ -63,11 +61,11 @@ export default function StockBadge({
   return (
     <p className="flex items-baseline gap-2 text-sm text-charcoal">
       <span aria-hidden="true" className="size-2 shrink-0 bg-glow" />
-      <span lang={htmlLang[lang]}>{pair[lang]}</span>
+      <span lang={htmlLang[lang]}>{pick(pair, lang)}</span>
       <span aria-hidden="true" className="text-linen">
         /
       </span>
-      <span lang={htmlLang[alt]}>{pair[alt]}</span>
+      <span lang={htmlLang[alt]}>{pick(pair, alt)}</span>
     </p>
   );
 }

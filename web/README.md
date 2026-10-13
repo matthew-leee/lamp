@@ -83,46 +83,84 @@ component (no translation toggle), no em-dashes in user-facing copy.
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and fill in:
+Copy `.env.example` to `.env.local` and fill in (the full annotated list
+lives there; the Rust API reads `PORT`, `DATABASE_URL`, `CORS_ORIGIN`,
+`MAX_POOL_CONNECTIONS`):
 
+- `NEXT_PUBLIC_BRAND_NAME` brand name (REQUIRED; no default — the brand is
+  configuration, never a code literal). `NEXT_PUBLIC_BRAND_NAME_NATIVE`
+  optional native-script form.
 - `NEXT_PUBLIC_SITE_URL` canonical public site URL (later: canonical, hreflang, sitemap).
-- `NEXT_PUBLIC_API_URL` base URL of the Rust API.
+- `NEXT_PUBLIC_API_URL` base URL of the Rust API. REQUIRED at build: the
+  catalogue, site copy and settings are fetched from it when pages are
+  generated (see the data layer below).
+- `NEXT_PUBLIC_LOCALES` the locale pair served (exactly two, first is the
+  default). Default `en,zh-HK`.
 - `NEXT_PUBLIC_WHATSAPP_NUMBER` international digits only.
-- `NEXT_PUBLIC_GA_MEASUREMENT_ID` GA4 ID, empty disables GA.
+- `NEXT_PUBLIC_GA_MEASUREMENT_ID` GA4 ID, empty disables GA (ships OFF;
+  the C8 privacy check gates turning it on).
 - `NEXT_PUBLIC_GSC_VERIFICATION` Search Console token, empty omits the meta tag.
+- `NEXT_PUBLIC_CURRENCY` ISO 4217 code for the money formatter (default HKD).
+- `NEXT_PUBLIC_AVAILABILITY_TTL_MS` / `NEXT_PUBLIC_FETCH_TIMEOUT_MS`
+  operational knobs (defaults 60000 / 10000).
 
-## Catalogue and availability data layer (T2)
+Runtime overrides: the `settings` table (admin console in D2) holds
+overrides for the non-secret identity/contact/analytics/currency keys;
+resolution is override, then env default. Secrets are env-only.
 
-- `lib/money.ts` integer-cents money helpers. `formatHKD(cents)` renders
-  whole dollars as `HK$1,615` and non-zero cents as `HK$1,234.56`; throws
-  `RangeError` on negative or non-integer input. Money is integer cents end
-  to end; division happens for display only.
-- `lib/catalog.ts` the static opening-drop catalogue (content/catalogue role
-  per DATA-01): 8 Louis Poulsen SKUs with bilingual model and colourway
-  names, units, integer-cent prices, drop numbers 01-16, heritage and
-  verified-facts-only electrical copy, and labelled reference prices
-  (TRUST-02: source + checked date; `null` for the PH 1/1 Piano Table, whose
-  UI says verification pending). Exports the types, `CATALOG`,
-  `getProduct(slug)`, `totalUnits` and `DROP { totalPieces: 16 }`.
+## Catalogue and availability data layer (T2 + D1)
+
+- **Data lives in Postgres, not in code** (D1, DATA-02): product content
+  (SKUs, prices, bilingual copy, art configuration, labelled reference prices,
+  numbered pieces) is seeded (`api/migrations/0002-0003`) and served by the
+  Rust API (`GET /api/catalogue`, `GET /api/site-content`,
+  `GET /api/settings`). `lib/catalog-client.ts` fetches them at build time
+  with a strict fail-loud contract (a page that cannot be confirmed is not
+  generated; malformed rows throw, never render invented data). Derived
+  counts (`total_pieces`, `units_in_drop`) are COUNTs, never constants.
+  Nothing catalogue-shaped is hardcoded in a TS file; `lib/catalog.ts` is
+  gone. The catalogue response deliberately carries NO stock fields: live
+  stock is served only by the fail-closed availability channel below.
+- **Build-time data dependency**: `npm run build` (and therefore the
+  behavioural test suites, which need a prior build) requires the Rust API
+  running with `DATABASE_URL` set and the migrations + seed applied:
+  `docker run postgres`, `psql -f api/migrations/*.sql` (in order),
+  `cd api && cargo run`, then build. Same shape as the existing
+  `next/font` network dependency; document it in CI.
+- `lib/config.ts` resolves configuration (ENV-01/CONFIG-01): settings
+  overrides over env defaults (brand, native brand, site URL, WhatsApp,
+  GA/GSC, currency), `{brand}`/`{subject}` template rendering, and the
+  operational knobs. Brand has no code default: it fails loudly when absent.
+- `lib/i18n.ts` the locale pair from `NEXT_PUBLIC_LOCALES` (exactly two,
+  validated), with `<html lang>` and endonym tables plus identity fallbacks.
+- `lib/money.ts` `formatMoney(cents, currency)`: integer-cents formatter for
+  the configured ISO 4217 currency (HKD renders `HK$1,615` whole and
+  `HK$1,234.56` with cents); `RangeError` on negative/non-integer input or an
+  invalid currency code.
 - `app/api/availability/route.ts` dynamic route handler (`force-dynamic`):
   the browser-facing availability endpoint. `fetchAvailabilityLive()` reads
-  `${NEXT_PUBLIC_API_URL}/api/products` with `cache: "no-store"` and a 10s
+  `${NEXT_PUBLIC_API_URL}/api/products` with `cache: "no-store"` and an
   abort timeout; 200 `{ ok: true, availability }` on confirmed data, 503
   `{ ok: false }` on any failure, with a timestamped server-side error log
   (the "discrepancy is reported" leg; full alerting is M3 ops).
 - `lib/availability-lifecycle.ts` pure client lifecycle (framework-free,
   fully unit-tested): in-flight-only request dedupe (fulfilled results are
-  never retained as dedupe keys), 60s confirmation TTL (`CONFIRMED_TTL_MS`),
-  fail-closed on expiry or refresh failure, reconfirm on mount, client-side
-  navigation and visibility resume, 10s fetch timeout.
+  never retained as dedupe keys), confirmation TTL (default 60s, env knob
+  `NEXT_PUBLIC_AVAILABILITY_TTL_MS`), fail-closed on expiry or refresh
+  failure, reconfirm on mount, client-side navigation and visibility resume,
+  fetch timeout (`NEXT_PUBLIC_FETCH_TIMEOUT_MS`, default 10s).
 - `components/availability-context.tsx` + `components/stock-badge.tsx`: the
   provider wraps the locale layout and runs one shared session; badges show
   `N left` / sold out / unconfirmed. Only a fresh confirmed count renders.
-- Tests: `test/catalog.test.mjs`, `test/availability.test.mjs`,
-  `test/availability-route.test.mjs` and
-  `test/availability-lifecycle.test.mjs` are unit suites (mocked fetch/clock,
-  no network); `test/routes.test.mjs` and `test/pages.test.mjs` are
-  server-based behavioural suites.
+- `lib/not-found-data.ts` fail-soft 404 copy loader: company copy from
+  `site_content` when fetchable, generic brand-free fallback otherwise — a
+  404 must never become a 500.
+- Tests: `test/catalog-client.test.mjs`, `test/config.test.mjs`,
+  `test/availability.test.mjs`, `test/availability-route.test.mjs`,
+  `test/availability-lifecycle.test.mjs`, `test/i18n.test.mjs`,
+  `test/money.test.mjs` and `test/ui-copy.test.mjs` are unit suites (mocked
+  fetch/env, no network); `test/routes.test.mjs` and `test/pages.test.mjs`
+  are server-based behavioural suites (seed-fixture assertions).
 
 ## Live availability architecture (commitment 5b)
 
@@ -144,6 +182,9 @@ T2: catalogue + money data layer. T3: editorial homepage, 16 static product
 story pages (8 SKUs x 2 locales) with the trust architecture (disclosure,
 pending warranty copy, labelled reference pricing, no delivery promises,
 verified electrical facts, live stock badge), placeholder art with the
-lights on/off toggle, WhatsApp enquiry (env-gated). Not yet: cart/checkout
-and payment (M1 money path), GA/GSC wiring, SEO surface (hreflang, JSON-LD,
-sitemap; T4), `output: "standalone"` for the Docker deploy.
+lights on/off toggle, WhatsApp enquiry (env-gated). D1: catalogue + site
+copy + settings moved to Postgres behind the API (white-label data layer);
+brand/currency/locales/env-knob configuration; the inline TS catalogue
+deleted. Not yet: admin console CRUD over the data (D2), GA/GSC wiring,
+SEO surface (hreflang, JSON-LD, sitemap; T4), cart/checkout and payment
+(M1 money path), `output: "standalone"` for the Docker deploy.

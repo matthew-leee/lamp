@@ -1,52 +1,48 @@
 /*
-  Behavioral tests for the T3 storefront pages (homepage + all 8 product
-  story pages, both locales) against a production server spawned on a random
-  test port. Requires a prior `npm run build` (documented in web/README.md).
+  Behavioral tests for the storefront pages (homepage + all 8 product story
+  pages, both locales) against a production server spawned on a random test
+  port. Requires a prior `npm run build` with the API + seeded DB reachable
+  and NEXT_PUBLIC_BRAND_NAME set to the fixture brand (documented in
+  web/README.md and test/fixtures/seed.mjs).
 
   Contract asserted (Vision.md DROP-01, TRUST-01, TRUST-02, I18N-01 and
-  commitments 5b / 7, reviewer send-back T3-rework):
+  commitments 5b / 7):
   - ALL 8 slugs x both locales (16 pages) get the core trust assertions:
-    exact approved copy imported from lib/ui-copy.ts is rendered; the
+    exact approved copy from the seed fixture (company copy lives in the
+    database since D1; the fixture is the independent pin) is rendered; the
     independent-seller disclosure appears at least TWICE per language (trust
     block + footer); the warranty block region contains the exact approved
     pending copy and NO other sentence; labelled reference price carries its
     rendered amounts, source and checked date (or verification pending);
-    stock badges show the "Confirming availability" placeholder and NO stock
-    number in the SSR HTML (commitment 5b: SSR never renders stock numbers);
-    no unconditional "in stock" claim anywhere (review finding 2); no
-    delivery duration in either language (commitment 7); no em-dashes.
+    stock badges show the "Confirming availability" placeholder and NO
+    stock number in the SSR HTML (commitment 5b); no unconditional "in stock"
+    claim anywhere (review finding 2); no delivery duration in either
+    language (commitment 7); no em-dashes.
   - every rendered HK$ amount is whitelisted per page (price plus, where
     verified, the labelled reference range): a fabricated comparison price
-    fails the set equality. The PH 1/1 Piano page must therefore show exactly
+    fails the set equality. The PH 1/1 Piano page must show exactly
     {HK$10,795} and nothing else.
   - the PH 2/1 page renders HK$8,400 and HK$9,400 with "MyConcept Hong
     Kong" and "2026-10-12" (reference amounts, source, checked date).
   - the homepage lists all 8 SKUs, pins the hero/trust copy and carries the
     drop-level "whole drop physically in Hong Kong" fact (the only such line
     on the site).
-  - unknown slugs 404 from the global shell without executing the page.
 
   Server identity: the port is randomized (distinct range from
-  test/routes.test.mjs so the two spawned servers cannot collide), readiness
-  is taken from the child's own "Ready" output line, child output is captured
-  for diagnostics on failure, and shutdown is awaited. The child env has
-  NEXT_PUBLIC_API_URL and NEXT_PUBLIC_WHATSAPP_NUMBER removed so the
+  test/routes.test.mjs), readiness is taken from the child's own "Ready"
+  output, child output is captured for diagnostics on failure, and shutdown
+  is awaited. The child env has NEXT_PUBLIC_WHATSAPP_NUMBER removed so the
   "render nothing" WhatsApp branch is guaranteed regardless of the shell
   environment (NEXT_PUBLIC_ values are also inlined at build time, so the
-  build must run with them unset too). Stock numbers cannot leak into SSR
-  HTML regardless of env: badges fetch /api/availability client-side only.
+  build must run without a WhatsApp number too). Stock numbers cannot leak
+  into SSR HTML regardless of env: badges fetch /api/availability
+  client-side only.
 
-  Deliberate-mutation demonstration (deliberate-mutation demos were run in
-  T1; this file is tight by construction, and one mutation was verified
-  manually during T3-rework): commenting out the trust-block disclosure
-  <div> in app/[lang]/products/[slug]/page.tsx and rebuilding makes the
-  "disclosure appears at least twice per language" count drop to 1 (footer
-  only) and fail exactly that assertion; the warranty-region exact-text
-  assertion also fails if anything is added inside the warranty block, and
-  the currency whitelist fails if any amount is fabricated. Assertions are
-  written so those mutations cannot pass by accident: counts are >= 2 per
-  language, the warranty region is compared for exact text equality, and
-  rendered amounts are compared as an exact set.
+  Deliberate-mutation note (tight by construction): deleting the trust-block
+  disclosure div makes the "disclosure at least twice per language" count drop
+  to 1 (footer only) and fail; the warranty region is compared for exact
+  equality; currency amounts are compared as an exact set. Assertions are
+  written so those mutations cannot pass by accident.
 */
 
 import { test, before, after } from "node:test";
@@ -55,29 +51,37 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CATALOG, DROP } from "../lib/catalog.ts";
-import { formatHKD } from "../lib/money.ts";
 import * as copy from "../lib/ui-copy.ts";
+import {
+  BRAND,
+  CATALOGUE,
+  SITE_CONTENT,
+  TOTAL_PIECES,
+  fixtureDropNumbering,
+  fixtureMoney,
+  fixtureProductDisplay,
+  fixtureReferenceChecked,
+  fixtureReferenceRange,
+  render,
+  siteContent,
+} from "./fixtures/seed.mjs";
 
 /* ---------------------------------------------------------------- */
-/* APPROVED TRUST COPY FIXTURES (review finding 3, T3-rework-2).     */
-/* Independent literals: expectations must NOT be derived from the   */
-/* production copy module, otherwise a quiet edit to production copy */
-/* (e.g. appending "Lifetime parts and labour are covered.") would  */
-/* update the expectation at the same time. The pinning test below   */
-/* fails the moment production copy drifts from these literals, and  */
-/* any change here is a visible, reviewable decision.                */
+/* APPROVED TRUST COPY (rendered with the fixture brand). Independent */
+/* literals: expectations must NOT be derived from the production copy  */
+/* path. Since D1 the copy is seeded site_content; these literals are   */
+/* the reviewable pin of what the baked pages must render.            */
 /* ---------------------------------------------------------------- */
 const APPROVED = {
   disclosure: {
-    en: "HAVN is an independent seller and is not an authorised Louis Poulsen dealer. All trademarks belong to their owners.",
+    en: "HVILE is an independent seller and is not an authorised Louis Poulsen dealer. All trademarks belong to their owners.",
     "zh-HK":
-      "HAVN 為獨立賣家，並非 Louis Poulsen 授權經銷商。所有商標均屬其擁有者。",
+      "HVILE 為獨立賣家，並非 Louis Poulsen 授權經銷商。所有商標均屬其擁有者。",
   },
   warrantyPending: {
-    en: "HAVN gives its own warranty on every piece it sells. The exact terms are still being finalised and will be published here before the first sale, in HAVN wording. The Louis Poulsen manufacturer warranty is never quoted as the HAVN warranty.",
+    en: "HVILE gives its own warranty on every piece it sells. The exact terms are still being finalised and will be published here before the first sale, in HVILE wording. The Louis Poulsen manufacturer warranty is never quoted as the HVILE warranty.",
     "zh-HK":
-      "HAVN 為所售出的每件燈飾提供自家保養。具體條款仍在釐定中，將以 HAVN 自己的用詞於首宗銷售前在此公佈。Louis Poulsen 的原廠保養絕不會被引用為 HAVN 的保養條款。",
+      "HVILE 為所售出的每件燈飾提供自家保養。具體條款仍在釐定中，將以 HVILE 自己的用詞於首宗銷售前在此公佈。Louis Poulsen 的原廠保養絕不會被引用為 HVILE 的保養條款。",
   },
   referencePending: {
     en: "Reference price: verification pending. A comparison price is published here only once a real source has been checked and the check date recorded.",
@@ -86,19 +90,22 @@ const APPROVED = {
   },
 };
 
-test("approved trust copy is pinned to independent literals", () => {
-  assert.equal(copy.disclosure.en, APPROVED.disclosure.en);
-  assert.equal(copy.disclosure["zh-HK"], APPROVED.disclosure["zh-HK"]);
-  assert.equal(copy.warrantyPending.en, APPROVED.warrantyPending.en);
-  assert.equal(
-    copy.warrantyPending["zh-HK"],
-    APPROVED.warrantyPending["zh-HK"],
-  );
-  assert.equal(copy.referencePending.en, APPROVED.referencePending.en);
-  assert.equal(
-    copy.referencePending["zh-HK"],
-    APPROVED.referencePending["zh-HK"],
-  );
+test("approved trust copy is pinned: the fixture template renders to the literal", () => {
+  // The fixture templates (independent literals) rendered with the brand
+  // must equal the APPROVED pin: a quiet edit on either side fails loudly.
+  for (const [key, approved] of Object.entries({
+    "trust.disclosure": APPROVED.disclosure,
+    "warranty.pending": APPROVED.warrantyPending,
+    "reference.pending": APPROVED.referencePending,
+  })) {
+    for (const locale of ["en", "zh-HK"]) {
+      assert.equal(
+        render(SITE_CONTENT[key][locale]),
+        approved[locale],
+        `${key} [${locale}] must render to the approved literal`,
+      );
+    }
+  }
 });
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -150,7 +157,7 @@ after(async () => {
     if (confirmed || server.exitCode !== null) return;
   }
   throw new Error(
-    `test server (pid ${server.pid}) did not exit after SIGTERM and SIGKILL. stdout:\n${serverOut}\nstderr:\n${serverErr}`,
+    `test server (pid ${server.pid}) did not exit after SIGTERM and SIGKILL. stdout:\n${serverOut}\n--- next server stderr ---\n${serverErr}`,
   );
 });
 
@@ -171,9 +178,11 @@ async function get(pathname) {
   return { status: res.status, html: await res.text() };
 }
 
-/** Rendered HTML with every <script> block removed (no RSC payload noise). */
+/** Rendered HTML with <script> blocks and React comment separators removed. */
 function visible(html) {
-  return html.replace(/<script[\s\S]*?<\/script>/g, "");
+  return html
+    .replace(/<script[\s\S]*?<\/script>/g, "")
+    .replace(/<!--.*?-->/g, "");
 }
 
 /** Occurrences of `needle` in `haystack`. */
@@ -210,16 +219,13 @@ const stockNumberPatterns = [
   /售罄/,
 ];
 
-/* Unconditional availability claims (review finding 2): the confirmed
-   badge state is the only per-SKU claim. */
+/* Unconditional availability claims (review finding 2). */
 const inStockPatterns = [/in stock/i, /現貨/];
 
 /* Drop-level location fact (allowed on the homepage hero only). */
 const dropLevelPatterns = [/physically in Hong Kong/i, /俱在香港/];
 
-/* Delivery durations and promises in both languages (commitment 7: none is
-   decided). Includes word-number durations and Chinese promise phrases
-   (review finding 3, T3-rework-2). */
+/* Delivery durations and promises in both languages (commitment 7). */
 const deliveryPatterns = [
   /\b\d+\s*-?\s*(business |working |calendar )?(day|days|week|weeks|hour|hours|minute|minutes)\b/i,
   /\b(one|two|three|four|five|six|seven|eight|nine|ten)\s*-?\s*(business |working |calendar )?(day|days|week|weeks|hour|hours)\b/i,
@@ -240,8 +246,7 @@ const deliveryPatterns = [
 ];
 
 /* Positive matcher fixtures: every ban pattern must catch the promise it
-   exists for, so a weakened or rotten pattern fails loudly (review finding,
-   T3 round 4). These strings must never appear in production copy. */
+   exists for (so a weakened pattern fails loudly). */
 const deliveryFixtures = [
   "Delivery in 3 days",
   "two-day delivery",
@@ -278,19 +283,22 @@ const inventedTermPattern =
 function assertCoreProductPage({ html, product, locale }) {
   const alt = locale === "en" ? "zh-HK" : "en";
   const docLang = locale === "en" ? "en" : "zh-Hant-HK";
-  const name = copy.productDisplay(product);
+  const name = fixtureProductDisplay(product, locale);
   const body = visible(html);
 
   // Document language and the exact approved title/metadata copy.
   assert.match(html, new RegExp(`<html lang="${docLang}"`));
-  const expectedTitle = `${copy.pick(name, locale)} | HAVN`;
+  const expectedTitle = `${name} | ${BRAND}`;
   assert.ok(
     html.includes(`<title>${expectedTitle}`),
     `expected <title> to start with "${expectedTitle}"`,
   );
   // Metadata is neutral (review finding 2): exact approved description, and
   // no unconditional stock claim in any metadata.
-  const expectedDescription = copy.pick(copy.productDescription(name), locale);
+  const expectedDescription = render(
+    SITE_CONTENT["meta.product.descriptionTemplate"][locale],
+    { subject: name },
+  );
   const meta = html.match(/<meta name="description" content="([^"]*)"/);
   assert.equal(
     meta?.[1],
@@ -298,18 +306,18 @@ function assertCoreProductPage({ html, product, locale }) {
     `expected meta description "${expectedDescription}", got "${meta?.[1]}"`,
   );
 
-  // Price in confident numerals, from formatHKD.
-  const price = formatHKD(product.priceCents);
+  // Price in confident numerals, in the configured currency.
+  const price = fixtureMoney(product.priceCents);
   assert.ok(body.includes(price), `expected ${price} in body`);
 
-  // Currency whitelist (review finding 3): every rendered HK$ amount must be
-  // the price or a labelled reference amount. A fabricated comparison price
-  // fails this exact set equality.
+  // Currency whitelist: every rendered HK$ amount must be the price or a
+  // labelled reference amount. A fabricated comparison price fails this
+  // exact set equality.
   const amounts = [...new Set(body.match(/HK\$[\d,]+(?:\.\d{2})?/g) ?? [])].sort();
   const expectedAmounts = new Set([price]);
   if (product.referencePrice !== null) {
-    expectedAmounts.add(formatHKD(product.referencePrice.minCents));
-    expectedAmounts.add(formatHKD(product.referencePrice.maxCents));
+    expectedAmounts.add(fixtureMoney(product.referencePrice.minPriceCents));
+    expectedAmounts.add(fixtureMoney(product.referencePrice.maxPriceCents));
   }
   assert.deepEqual(
     amounts,
@@ -318,16 +326,16 @@ function assertCoreProductPage({ html, product, locale }) {
   );
 
   // Drop numbering (DROP-01), both languages, exact approved strings.
-  const pieces = copy.dropNumbering(product.dropNumbers, DROP.totalPieces);
-  assert.ok(body.includes(pieces[locale]), `missing "${pieces[locale]}"`);
-  assert.ok(body.includes(pieces[alt]), `missing "${pieces[alt]}"`);
+  const piecesLocale = fixtureDropNumbering(product.pieces, TOTAL_PIECES, locale);
+  const piecesAlt = fixtureDropNumbering(product.pieces, TOTAL_PIECES, alt);
+  assert.ok(body.includes(piecesLocale), `missing "${piecesLocale}"`);
+  assert.ok(body.includes(piecesAlt), `missing "${piecesAlt}"`);
 
   // (a) Independent-seller disclosure (TRUST-01), exact approved strings, at
-  // least TWICE per language: trust block + footer. Deleting the trust-block
-  // instance must fail this (see the deliberate-mutation note above).
+  // least TWICE per language: trust block + footer.
   for (const [langKey, passage] of [
-    ["en", copy.disclosure.en],
-    ["zh-HK", copy.disclosure["zh-HK"]],
+    ["en", APPROVED.disclosure.en],
+    ["zh-HK", APPROVED.disclosure["zh-HK"]],
   ]) {
     const seen = count(body, passage);
     assert.ok(
@@ -339,12 +347,12 @@ function assertCoreProductPage({ html, product, locale }) {
   assert.ok(body.includes(copy.disclosureLabel[alt]));
 
   // (b) Warranty: exact approved pending copy and NO other sentence in the
-  // warranty block region (tight region comparison, review finding 3).
-  const warrantyRegion = enclosingDiv(body, copy.warrantyPending.en);
+  // warranty block region (tight region comparison).
+  const warrantyRegion = enclosingDiv(body, APPROVED.warrantyPending.en);
   assert.equal(
     textOf(warrantyRegion),
     `${copy.warrantyLabel[locale]} / ${copy.warrantyLabel[alt]} ` +
-      `${copy.warrantyPending[locale]} ${copy.warrantyPending[alt]}`,
+      `${APPROVED.warrantyPending[locale]} ${APPROVED.warrantyPending[alt]}`,
     "the warranty block must contain exactly the approved label and pending copy",
   );
   assert.doesNotMatch(body, inventedTermPattern);
@@ -355,28 +363,31 @@ function assertCoreProductPage({ html, product, locale }) {
   assert.ok(body.includes(copy.referenceLabel[alt]));
   const reference = product.referencePrice;
   if (reference === null) {
-    assert.ok(body.includes(copy.referencePending.en), "missing English pending copy");
     assert.ok(
-      body.includes(copy.referencePending["zh-HK"]),
+      body.includes(APPROVED.referencePending.en),
+      "missing English pending copy",
+    );
+    assert.ok(
+      body.includes(APPROVED.referencePending["zh-HK"]),
       "missing Chinese pending copy",
     );
     assert.doesNotMatch(body, /MyConcept/);
     assert.doesNotMatch(body, /checked \d{4}-\d{2}-\d{2}/);
     assert.doesNotMatch(body, /查核日期\s*\d{4}-\d{2}-\d{2}/);
   } else {
-    const range = copy.referenceRange(reference);
-    const checked = copy.referenceChecked(reference);
-    assert.ok(body.includes(range[locale]), `missing "${range[locale]}"`);
-    assert.ok(body.includes(range[alt]), `missing "${range[alt]}"`);
-    assert.ok(body.includes(checked[locale]), `missing "${checked[locale]}"`);
-    assert.ok(body.includes(checked[alt]), `missing "${checked[alt]}"`);
-    assert.ok(body.includes(reference.source), "missing reference source");
+    const rangeLocale = fixtureReferenceRange(reference, "HKD", locale);
+    const rangeAlt = fixtureReferenceRange(reference, "HKD", alt);
+    const checkedLocale = fixtureReferenceChecked(reference, locale);
+    const checkedAlt = fixtureReferenceChecked(reference, alt);
+    assert.ok(body.includes(rangeLocale), `missing "${rangeLocale}"`);
+    assert.ok(body.includes(rangeAlt), `missing "${rangeAlt}"`);
+    assert.ok(body.includes(checkedLocale), `missing "${checkedLocale}"`);
+    assert.ok(body.includes(checkedAlt), `missing "${checkedAlt}"`);
+    assert.ok(body.includes(reference.sourceName), "missing reference source");
   }
 
-  // (d) Availability (commitment 5b, review finding 1): the SSR HTML shows
-  // the confirming placeholder and NEVER a stock number. The badge's live
-  // "N left" state is rendered only client-side after /api/availability
-  // confirms it.
+  // (d) Availability (commitment 5b): the SSR HTML shows the confirming
+  // placeholder and NEVER a stock number.
   assert.ok(
     body.includes(copy.stockUnconfirmed.en),
     "missing 'Confirming availability' placeholder",
@@ -390,8 +401,7 @@ function assertCoreProductPage({ html, product, locale }) {
   }
 
   // Review finding 2: no unconditional "in stock" claim anywhere on a
-  // product page (metadata included), and the drop-level Hong Kong fact
-  // stays on the homepage hero only.
+  // product page, and the drop-level Hong Kong fact stays on the homepage.
   for (const pattern of [...inStockPatterns, ...dropLevelPatterns]) {
     assert.doesNotMatch(body, pattern);
   }
@@ -402,13 +412,11 @@ function assertCoreProductPage({ html, product, locale }) {
   }
 
   // (e) Electrical and heritage copy from the catalogue, exact strings.
-  const electrical = copy.localizedToBilingual(product.electrical);
-  const heritage = copy.localizedToBilingual(product.heritage);
-  assert.ok(body.includes(electrical[locale]));
-  assert.ok(body.includes(electrical[alt]));
+  assert.ok(body.includes(product.electrical[locale]));
+  assert.ok(body.includes(product.electrical[alt]));
   assert.ok(body.includes(copy.electricalLabel[locale]));
   assert.ok(body.includes(copy.heritageLabel[locale]));
-  assert.ok(body.includes(heritage[locale]));
+  assert.ok(body.includes(product.heritage[locale]));
 
   // Other approved chrome copy, exact strings.
   assert.ok(body.includes(copy.backToDrop[locale]));
@@ -427,7 +435,7 @@ function assertCoreProductPage({ html, product, locale }) {
   assert.doesNotMatch(body, /\u2014/);
 }
 
-for (const product of CATALOG) {
+for (const product of CATALOGUE) {
   for (const locale of ["en", "zh-HK"]) {
     test(`/products/${product.slug} (${locale}): core trust contract`, () =>
       check(async () => {
@@ -447,7 +455,6 @@ for (const locale of ["en", "zh-HK"]) {
     check(async () => {
       const { html } = await get(`/${locale}/products/ph-2-1-table-chrome`);
       const body = visible(html);
-      // The rendered reference amounts (not just "a range exists").
       assert.ok(body.includes("HK$8,400"), "missing HK$8,400");
       assert.ok(body.includes("HK$9,400"), "missing HK$9,400");
       assert.ok(body.includes("MyConcept Hong Kong"), "missing reference source");
@@ -458,12 +465,10 @@ for (const locale of ["en", "zh-HK"]) {
     check(async () => {
       const { html } = await get(`/${locale}/products/ph-1-1-piano-table-limited`);
       const body = visible(html);
-      // Whitelist: the ONLY currency amount on the page is its own price.
       const amounts = [...new Set(body.match(/HK\$[\d,]+(?:\.\d{2})?/g) ?? [])];
       assert.deepEqual(amounts, ["HK$10,795"]);
-      // Pending copy instead of a made-up comparison price.
-      assert.ok(body.includes(copy.referencePending.en));
-      assert.ok(body.includes(copy.referencePending["zh-HK"]));
+      assert.ok(body.includes(APPROVED.referencePending.en));
+      assert.ok(body.includes(APPROVED.referencePending["zh-HK"]));
       assert.doesNotMatch(body, /MyConcept/);
       assert.ok(!body.includes("2026-10-12"), "fabricated check date in body");
     }));
@@ -481,22 +486,6 @@ for (const locale of ["en", "zh-HK"]) {
 /* Homepage                                                          */
 /* ---------------------------------------------------------------- */
 
-/* Site metadata copy (app/[lang]/layout.tsx generateMetadata), pinned
-   literally: it is layout-owned copy and must stay neutral (review finding
-   2). The drop-level fact is whole-drop wording and cannot read as per-SKU
-   availability. */
-const siteMeta = {
-  en: {
-    title: "HAVN | Curated designer homeware, the opening drop",
-    description:
-      "HAVN, curated designer homeware. The opening drop of designer lighting: 16 numbered pieces, the whole drop physically in Hong Kong.",
-  },
-  "zh-HK": {
-    title: "HAVN | 精選設計家居 · 首發登場",
-    description: "HAVN 精選設計家居。設計燈飾首發登場，16 件編號作品，整批俱在香港。",
-  },
-};
-
 for (const locale of ["en", "zh-HK"]) {
   test(`homepage (${locale}): the 8 pieces, pinned trust copy, neutral metadata`, () =>
     check(async () => {
@@ -508,9 +497,9 @@ for (const locale of ["en", "zh-HK"]) {
       assert.match(html, new RegExp(`<html lang="${docLang}"`));
 
       // Exact approved metadata (neutral, no "in stock" claim).
-      assert.ok(html.includes(`<title>${siteMeta[locale].title}`));
+      assert.ok(html.includes(`<title>${siteContent("meta.home.title", locale)}`));
       const meta = html.match(/<meta name="description" content="([^"]*)"/);
-      assert.equal(meta?.[1], siteMeta[locale].description);
+      assert.equal(meta?.[1], siteContent("meta.home.description", locale));
 
       // All 8 SKUs are linked into their story pages, exactly once each.
       const links = body.match(new RegExp(`href="/${locale}/products/`, "g"));
@@ -519,7 +508,7 @@ for (const locale of ["en", "zh-HK"]) {
         8,
         `expected 8 product links, got ${links?.length ?? 0}`,
       );
-      for (const product of CATALOG) {
+      for (const product of CATALOGUE) {
         assert.ok(
           body.includes(`href="/${locale}/products/${product.slug}"`),
           `missing link to ${product.slug}`,
@@ -529,34 +518,43 @@ for (const locale of ["en", "zh-HK"]) {
       // Currency whitelist: exactly the 8 catalogue prices, nothing else.
       const amounts = [...new Set(body.match(/HK\$[\d,]+(?:\.\d{2})?/g) ?? [])].sort();
       const expectedPrices = [
-        ...new Set(CATALOG.map((p) => formatHKD(p.priceCents))),
+        ...new Set(CATALOGUE.map((p) => fixtureMoney(p.priceCents))),
       ].sort();
       assert.deepEqual(amounts, expectedPrices);
 
       // Hero lead, exact approved strings (review finding 2: the drop-level
       // "whole drop physically in Hong Kong" fact lives here only).
-      assert.ok(body.includes(copy.heroLead[locale]), "missing hero lead");
-      assert.ok(body.includes(copy.heroLeadPaired[alt]), "missing paired lead");
+      assert.ok(body.includes(siteContent("hero.lead", locale)), "missing hero lead");
       assert.ok(
-        body.includes(copy.pick(copy.dropFraming, locale)),
+        body.includes(siteContent("hero.leadPaired", alt)),
+        "missing paired lead",
+      );
+      assert.ok(
+        body.includes(siteContent("drop.framing", locale)),
         "missing drop framing",
       );
-      assert.ok(body.includes(copy.dropFraming[alt]));
+      assert.ok(body.includes(siteContent("drop.framing", alt)));
 
-      // Collection heading pair, both languages (I18N-01).
-      assert.ok(body.includes(copy.piecesHeading[locale]));
-      assert.ok(body.includes(copy.piecesHeading[alt]));
+      // Collection heading pair, both languages (I18N-01), from site content.
+      assert.ok(body.includes(siteContent("drop.piecesHeading", locale)));
+      assert.ok(
+        body.includes(siteContent("drop.piecesHeading", alt)),
+        "missing alt collection heading",
+      );
 
       // Trust strip + footer: disclosure at least twice per language.
-      for (const passage of [copy.disclosure.en, copy.disclosure["zh-HK"]]) {
+      for (const passage of [APPROVED.disclosure.en, APPROVED.disclosure["zh-HK"]]) {
         assert.ok(
           count(body, passage) >= 2,
           "disclosure must appear at least twice (trust strip + footer)",
         );
       }
-      assert.ok(body.includes(copy.pick(copy.trustStripLabel, locale)));
-      assert.ok(body.includes(copy.enquiryIntro[locale]));
-      assert.ok(body.includes(copy.enquiryIntro[alt]));
+      assert.ok(body.includes(copy.trustStripLabel[locale]));
+      assert.ok(body.includes(siteContent("enquiry.intro", locale)));
+      assert.ok(body.includes(siteContent("enquiry.intro", alt)));
+
+      // Footer location from site content with the brand.
+      assert.ok(body.includes(`${BRAND} · ${siteContent("footer.location", locale)}`));
 
       // Unconfirmed stock everywhere, no numbers (commitment 5b).
       assert.ok(body.includes(copy.stockUnconfirmed.en));
@@ -565,8 +563,7 @@ for (const locale of ["en", "zh-HK"]) {
         assert.doesNotMatch(body, pattern);
       }
 
-      // No unconditional "in stock" claim anywhere (homepage included), and
-      // no delivery duration in either language (commitment 7).
+      // No unconditional "in stock" claim, no delivery duration (commitment 7).
       for (const pattern of [...inStockPatterns, ...deliveryPatterns]) {
         assert.doesNotMatch(body, pattern);
       }

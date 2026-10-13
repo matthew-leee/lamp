@@ -6,6 +6,64 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `api/` D1.2 read endpoints: GET /api/catalogue (active SKUs only, ordered
+  by id; locale-keyed content, labelled reference price or null, numbered
+  pieces, derived `units_in_drop` and `total_pieces` = COUNT(*), assembled in
+  Rust from simple runtime queries; no stock fields anywhere — live stock
+  stays fail-closed on /api/products), GET /api/site-content
+  (key -> locale -> value), GET /api/settings (flat, PUBLIC_SETTING_KEYS
+  whitelist: non-whitelisted keys skipped with `warn!`, secrets never
+  readable). Config knobs (ENV-01): `CORS_ORIGIN` (default
+  `http://localhost:3000`, invalid value warns + falls back) and
+  `MAX_POOL_CONNECTIONS` (default 5, clamped to 1..=64) replace inline
+  literals. New modules `catalogue.rs`, `content.rs`, `state.rs`, `config.rs`
+  with unit tests (DTO key sets, no-stock contract, whitelist filter,
+  origin/pool parsing). Contract tests: all three 503 without DATABASE_URL.
+- `api/` D1 migrations: 0002 (products content columns + product_content,
+  reference_prices, pieces, site_content, settings, audit_log schema — D2
+  admin needs no further migration) and 0003 (idempotent opening-drop seed,
+  DO NOTHING so admin edits always win over re-seeding; {brand}-templated
+  copy; settings deliberately empty: overrides only).
+- `web/` D1.3 white-label data layer: catalogue, site copy and settings are
+  fetched at build time from the Rust API (`lib/catalog-client.ts`, fail-loud:
+  malformed data throws, never renders invented content; no stock fields in
+  the catalogue — live stock stays fail-closed on /api/availability).
+  Fetches use Next's revalidating data cache (`revalidate: 60` + tags), the
+  commitment 5b stale bound; D2 admin mutations will purge via tags. Brand,
+  currency and locales are configuration (`lib/config.ts`: settings
+  override → env → safe default; brand required, fails loudly when absent;
+  `{brand}`/`{subject}` template rendering). `lib/i18n.ts` locale pair from
+  `NEXT_PUBLIC_LOCALES` (exactly two, validated at load; html-lang/endonym
+  tables with identity fallback). `lib/money.ts` `formatMoney(cents,
+  currency)` for the configured ISO 4217 code (no hardcoded symbol).
+  404 shells load company copy fail-soft (`lib/not-found-data.ts`: generic
+  brand-free fallback, a 404 never becomes a 500). Header/footer/WhatsApp
+  receive resolved config as props; site copy renders with the brand.
+  Availability TTL/timeout knobs are env-configurable with 60s/10s defaults.
+  `.env.example` documents the full white-label surface.
+- `web/` test fixtures: `test/fixtures/seed.mjs`, the independent pin of the
+  seeded copy + catalogue the behavioural suites assert against.
+
+### Changed
+- `web/` D1.3: the inline TS catalogue is DELETED (`lib/catalog.ts`): SKUs,
+  prices, bilingual copy, art config, reference prices, drop numbering and
+  site copy now live in Postgres (migrations 0002/0003) served through the
+  API. Derived counts (`total_pieces`, `units_in_drop`) are COUNTs; the
+  slug-prefix art rule is gone (art_variant/art_hue are product data).
+  `npm run build` now requires the Rust API + seeded DB reachable (build-time
+  data dependency, documented in web/README.md and root README). Test
+  suites rewritten against the seed fixtures: 142 tests total (config, i18n,
+  money, catalogue-client, ui-copy, stock, whatsapp, availability x3,
+  lifecycle, routes, pages).
+- `api/` GET /api/products no longer returns `colourway` (migration 0002
+  drops the column; colour copy moved to locale-keyed product_content served
+  by /api/catalogue). Response keeps id, slug, brand, model, price_cents,
+  stock_total, stock_reserved, created_at; availability contract unchanged.
+- `README.md` (root): "Configuration and data principles" section — env over
+  inline, CSS as the single token-file exception, data in Postgres not code;
+  project renamed to lamp (brand is env-supplied per NAME-01).
+- `web/README.md`: environment and data-layer sections rewritten for the
+  white-label config surface and the build-time API dependency.
 - `web/` storefront pages (M2 T3): editorial homepage (numbered-drop hero,
   8-SKU grid, trust strip) and 16 static product story pages (8 SKUs x
   en/zh-HK) implementing the trust architecture: independent-seller

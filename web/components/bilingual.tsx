@@ -11,12 +11,20 @@
 import { altLocale, htmlLang, type Locale } from "@/lib/i18n";
 import type { Bilingual } from "@/lib/ui-copy";
 
-/** Type family class per passage language (composition in globals.css). */
+/**
+ * Type family class per passage language (composition in globals.css).
+ * Script-aware rather than locale-literal: the Latin pairing (Fraunces /
+ * Space Grotesk) serves non-CJK locales, the TC pairing (Noto Serif TC /
+ * Noto Sans TC) serves zh* locales, so any configured pair gets the right
+ * stack without hardcoding "en".
+ */
 export function familyClass(locale: Locale, kind: "display" | "sans"): string {
+  const script = htmlLang[locale] ?? locale;
+  const isCjk = /^(zh|ja|ko)/.test(script);
   if (kind === "display") {
-    return locale === "en" ? "font-display" : "font-display-tc";
+    return isCjk ? "font-display-tc" : "font-display";
   }
-  return locale === "en" ? "font-sans" : "font-sans-tc";
+  return isCjk ? "font-sans-tc" : "font-sans";
 }
 
 interface BilingualPairProps {

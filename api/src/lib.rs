@@ -1,7 +1,14 @@
-//! Shared helpers for the HAVN API.
+//! Shared helpers and HTTP handlers for the HAVN API.
 //!
-//! The Axum server lives in the binary target (`src/main.rs`); anything reusable
-//! (and unit-testable on its own) belongs here.
+//! The Axum server bootstrap lives in the binary target (`src/main.rs`);
+//! anything reusable (and unit-testable on its own) belongs here: request
+//! handlers with their DTOs (`catalogue`, `content`), shared HTTP plumbing
+//! (`state`), env configuration knobs (`config`) and pure helpers
+//! (`money`, `slug`).
 
+pub mod catalogue;
+pub mod config;
+pub mod content;
 pub mod money;
 pub mod slug;
+pub mod state;

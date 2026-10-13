@@ -40,6 +40,7 @@ import { usePathname } from "next/navigation";
 import type { AvailabilityMap } from "@/lib/availability";
 import {
   createAvailabilitySession,
+  createRouteFetcher,
   type AvailabilitySession,
   type DesiredState,
 } from "@/lib/availability-lifecycle";
@@ -65,21 +66,37 @@ const AvailabilityContext = createContext<AvailabilityState>({
  * Live availability for the current page load:
  * `{state:"loading"}` | `{state:"live", map}` | `{state:"unconfirmed"}`.
  * Only `{state:"live"}` carries a number, and only while the confirmation
- * behind it is fresh (60s TTL).
+ * behind it is fresh (default 60s TTL).
  */
 export function useAvailability(): AvailabilityState {
   return useContext(AvailabilityContext);
 }
 
+export interface AvailabilityProviderProps {
+  children: ReactNode;
+  /**
+   * Confirmation TTL for the client session, resolved on the SERVER
+   * (lib/config.ts availabilityTtlMs(); ENV-01: Next only inlines
+   * statically named public env accesses, so the browser cannot resolve the
+   * knob itself). Defaults to the module constant.
+   */
+  ttlMs?: number;
+  /** Route-fetch abort timeout, server-resolved (lib/config.ts fetchTimeoutMs()). */
+  timeoutMs?: number;
+}
+
 export default function AvailabilityProvider({
   children,
-}: {
-  children: ReactNode;
-}) {
+  ttlMs,
+  timeoutMs,
+}: AvailabilityProviderProps) {
   // One session per provider instance, created lazily and never recreated.
   const sessionRef = useRef<AvailabilitySession | null>(null);
   if (sessionRef.current === null) {
-    sessionRef.current = createAvailabilitySession();
+    sessionRef.current = createAvailabilitySession({
+      ttlMs,
+      fetchAvailability: createRouteFetcher({ timeoutMs }),
+    });
   }
   const session = sessionRef.current;
 

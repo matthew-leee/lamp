@@ -1,7 +1,6 @@
-import NotFoundContent, {
-  notFoundMetadata,
-} from "@/components/not-found-content";
+import NotFoundContent from "@/components/not-found-content";
 import { defaultLocale, htmlLang } from "@/lib/i18n";
+import { loadNotFoundData } from "@/lib/not-found-data";
 
 /*
   Bare-shell 404 (Next 15 `experimental.globalNotFound` convention, see
@@ -10,16 +9,22 @@ import { defaultLocale, htmlLang } from "@/lib/i18n";
   no-middleware, no-root-layout setup: Next renders this component as the
   entire document (no layout wraps it), which is also why it owns the
   <body> reset (margin 0, bone background) that app/globals.css cannot
-  provide here. Documented default language: 'en' (lib/i18n.ts
-  defaultLocale). Bilingual content at equal weight (Vision.md I18N-01).
+  provide here. Documented default language: the first configured locale
+  (lib/i18n.ts defaultLocale).
+
+  Copy is company content from the database (notFound.* keys), fetched at
+  build and rendered with the brand; if that fails, the generic brand-free
+  fallback renders instead (lib/not-found-data.ts never throws).
 */
 
-export default function GlobalNotFound() {
+export default async function GlobalNotFound() {
+  const data = await loadNotFoundData();
+
   return (
     <html lang={htmlLang[defaultLocale]}>
       <head>
-        <title>{notFoundMetadata.title}</title>
-        <meta name="description" content={notFoundMetadata.description} />
+        <title>{data.title[defaultLocale] ?? "Page not found / 找不到頁面"}</title>
+        <meta name="description" content={data.description[defaultLocale] ?? ""} />
       </head>
       <body
         style={{
@@ -28,7 +33,7 @@ export default function GlobalNotFound() {
           backgroundColor: "#f7f3ec" /* bone */,
         }}
       >
-        <NotFoundContent />
+        <NotFoundContent body={data.body} />
       </body>
     </html>
   );

@@ -5,7 +5,7 @@
  * Pure presentation: no images, no client JS, server-renderable as-is. The
  * silhouette is simple SVG geometry (dome + trumpet base for Panthella-style
  * lamps, stacked shades + stem for PH-style lamps) and its glow colour derives
- * from the SKU's `placeholder.hue` (lib/catalog.ts).
+ * from the SKU's `placeholder.hue` (product data from the catalogue API).
  *
  * Design rules respected here (docs/designs/havn-opening-drop.md):
  * - The glow is the only saturated colour on the site; it is layered as flat
@@ -18,7 +18,7 @@
  */
 
 interface PlaceholderArtProps {
-  /** Hue of this SKU's glow, from `CatalogProduct.placeholder.hue`. */
+  /** Hue of this SKU's glow, from the fetched product art data. */
   hue: number;
   lit: boolean;
   /** Lamp family silhouette. */

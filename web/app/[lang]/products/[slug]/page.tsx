@@ -3,11 +3,18 @@
  * DROP-01, TRUST-01, TRUST-02).
  *
  * Static generation contract (T1 lesson, web/README.md): every valid path is
- * known at build time from generateStaticParams (8 slugs x 2 locales) and
- * `dynamicParams = false` rejects anything else at the router, BEFORE this
- * page executes. notFound() is never reached at request time (the guard below
- * is build-time only), because notFound() thrown at request time escapes SSR
- * in this no-root-layout setup and recovers without its lang attribute.
+ * known at build time from generateStaticParams (the fetched catalogue's
+ * slugs x the configured locales) and `dynamicParams = false` rejects
+ * anything else at the router, BEFORE this page executes. notFound() is never
+ * reached at request time (the guard below is build-time only), because
+ * notFound() thrown at request time escapes SSR in this no-root-layout setup
+ * and recovers without its lang attribute.
+ *
+ * Data (DATA-02/CONFIG-01): the SKU, its bilingual copy, art configuration
+ * and labelled reference price come from the fetched catalogue (Postgres via
+ * the Rust API); trust copy (disclosure, warranty pending, reference
+ * pending) is company copy from the site_content table rendered with the
+ * resolved brand; the price renders in the configured currency.
  *
  * Above the fold: the hero placeholder art with the single signature
  * interaction (lights on / lights off, the only client JS on this page) and
@@ -23,8 +30,8 @@
  * and nothing states a delivery duration (commitment 7). Below: the heritage
  * story and the WhatsApp enquiry.
  *
- * Prices format only through lib/money.ts (formatHKD). No em-dashes in
- * user-facing copy.
+ * Prices format only through lib/money.ts with the configured currency. No
+ * em-dashes in user-facing copy.
  */
 
 import type { Metadata } from "next";
@@ -35,75 +42,173 @@ import BilingualPair, { familyClass } from "@/components/bilingual";
 import LightsToggle from "@/components/lights-toggle";
 import StockBadge from "@/components/stock-badge";
 import WhatsAppButton from "@/components/whatsapp-button";
-import { CATALOG, DROP, getProduct, type ReferencePrice } from "@/lib/catalog";
-import { altLocale, htmlLang, isLocale, type Locale } from "@/lib/i18n";
-import { formatHKD } from "@/lib/money";
+import {
+  contentValue,
+  fetchCatalogue,
+  fetchSettings,
+  fetchSiteContent,
+  getProduct,
+  type CatalogueProduct,
+  type ReferencePrice,
+} from "@/lib/catalog-client";
+import {
+  renderTemplate,
+  requireApiUrl,
+  resolveSiteConfig,
+} from "@/lib/config";
+import { altLocale, htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
+import { formatMoney } from "@/lib/money";
 import {
   artLabel,
   backToDrop,
-  disclosure,
+  buildEnquiryMessage,
   disclosureLabel,
   dropNumbering,
   electricalLabel,
   heritageLabel,
-  localizedToBilingual,
   pick,
   priceLabel,
-  productDescription,
   productDisplay,
+  productMetaDescription,
   referenceChecked,
   referenceLabel,
-  referencePending,
   referenceRange,
   referenceSourceLabel,
   warrantyLabel,
-  warrantyPending,
+  type Bilingual,
 } from "@/lib/ui-copy";
 
 // Unknown slugs 404 from the global shell without executing this page
 // (T1 lesson: never call notFound() at request time in this setup).
 export const dynamicParams = false;
 
-/** 8 catalogue slugs x 2 locales = 16 static product pages. */
-export function generateStaticParams() {
-  return CATALOG.map((product) => ({ slug: product.slug }));
+/** The fetched catalogue's slugs (fail-loud: no API, no product pages). */
+export async function generateStaticParams() {
+  const catalogue = await fetchCatalogue(requireApiUrl());
+  return catalogue.products.map((product) => ({ slug: product.slug }));
 }
 
 type ProductPageProps = {
   params: Promise<{ lang: string; slug: string }>;
 };
 
+/** One per-locale passage from the product's content rows (fail-loud). */
+function productCopy(
+  product: CatalogueProduct,
+  field: "heritage" | "electrical",
+  locale: string,
+): string {
+  const value = product.content[locale]?.[field];
+  if (value === undefined) {
+    throw new Error(
+      `product page: product "${product.slug}" has no ${field} copy for ` +
+        `locale "${locale}" (complete the product_content row or deactivate ` +
+        "the SKU).",
+    );
+  }
+  return value;
+}
+
+/** Build a bilingual pair from per-locale product copy. */
+function productPair(
+  product: CatalogueProduct,
+  field: "heritage" | "electrical",
+): Bilingual {
+  const out: Bilingual = {};
+  for (const locale of locales) {
+    out[locale] = productCopy(product, field, locale);
+  }
+  return out;
+}
+
+/** Bilingual display name of the SKU. */
+function namePair(product: CatalogueProduct): Bilingual {
+  const out: Bilingual = {};
+  for (const locale of locales) {
+    out[locale] = productDisplay(product, locale);
+  }
+  return out;
+}
+
+/**
+ * Page data: catalogue row + content + resolved config, fetched at build
+ * and at every on-demand revalidation. Returns null for an unknown slug.
+ */
+async function loadProductData(slug: string) {
+  const apiUrl = requireApiUrl();
+  const [catalogue, content, overrides] = await Promise.all([
+    fetchCatalogue(apiUrl),
+    fetchSiteContent(apiUrl),
+    fetchSettings(apiUrl),
+  ]);
+  const config = resolveSiteConfig(overrides);
+  const product = getProduct(catalogue, slug);
+  if (product === undefined) return null;
+  return { catalogue, content, config, product };
+}
+
 export default async function ProductPage({ params }: ProductPageProps) {
   const { lang, slug } = await params;
   if (!isLocale(lang)) {
     notFound();
   }
+  const locale: Locale = lang;
+  const alt = altLocale(locale);
 
-  const product = getProduct(slug);
-  // Build-time guard only: generateStaticParams + dynamicParams = false mean
-  // an unknown slug never reaches this line at request time.
-  if (!product) {
-    notFound();
+  const data = await loadProductData(slug);
+  // Unknown slug: at BUILD this is impossible (generateStaticParams emits
+  // only catalogue slugs) and the router 40s anything else. At ON-DEMAND
+  // REVALIDATION it means a previously generated SKU left the active
+  // catalogue (deactivated in the DB): throwing is deliberately NOT
+  // notFound() (request-time notFound() escapes SSR in this no-root-layout
+  // setup and loses the document language) and NOT a silent half-page — the
+  // re-render fails loudly and Next keeps serving the last good page until
+  // the D2 admin rebuilds/revalidates with the SKU removed.
+  if (data === null) {
+    throw new Error(
+      `product page: slug "${slug}" is no longer in the active catalogue ` +
+        "(deactivated after generation); re-run the build with the current " +
+        "catalogue to retire this route.",
+    );
+  }
+  const { catalogue, content, config, product } = data;
+  const name = namePair(product);
+  const reference = product.referencePrice;
+  const art = product.art;
+
+  // Trust copy from site content, rendered with the brand (DATA-02).
+  const disclosurePair: Bilingual = {};
+  const warrantyPair: Bilingual = {};
+  const referencePendingPair: Bilingual = {};
+  for (const l of locales) {
+    disclosurePair[l] = renderTemplate(
+      contentValue(content, "trust.disclosure", l),
+      { brand: config.brandName },
+    );
+    warrantyPair[l] = renderTemplate(
+      contentValue(content, "warranty.pending", l),
+      { brand: config.brandName },
+    );
+    referencePendingPair[l] = contentValue(content, "reference.pending", l);
   }
 
-  const alt = altLocale(lang);
-  const name = productDisplay(product);
-  const pieces = dropNumbering(product.dropNumbers, DROP.totalPieces);
-  const reference = product.referencePrice;
-  const variant = product.slug.startsWith("ph-") ? "shades" : "dome";
+  const piecesPair: Bilingual = {};
+  for (const l of locales) {
+    piecesPair[l] = dropNumbering(product.pieces, catalogue.totalPieces, l);
+  }
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 sm:px-10">
-      <p className={`pt-10 text-sm ${familyClass(lang, "sans")}`}>
+      <p className={`pt-10 text-sm ${familyClass(locale, "sans")}`}>
         <Link
-          href={`/${lang}`}
+          href={`/${locale}`}
           className="text-ink-soft underline underline-offset-4 transition-colors duration-200 hover:text-charcoal"
         >
-          <span lang={htmlLang[lang]}>{backToDrop[lang]}</span>
+          <span lang={htmlLang[locale]}>{pick(backToDrop, locale)}</span>
           <span aria-hidden="true" className="px-2">
             /
           </span>
-          <span lang={htmlLang[alt]}>{backToDrop[alt]}</span>
+          <span lang={htmlLang[alt]}>{pick(backToDrop, alt)}</span>
         </Link>
       </p>
 
@@ -111,26 +216,26 @@ export default async function ProductPage({ params }: ProductPageProps) {
       <div className="mt-10 grid gap-14 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-20">
         <div>
           <LightsToggle
-            hue={product.placeholder.hue}
-            variant={variant}
-            label={pick(artLabel(name), lang)}
+            hue={art.hue}
+            variant={art.variant}
+            label={artLabel(name, locale)}
           />
         </div>
 
         <div>
           <p
-            className={`text-xs tracking-[0.18em] text-ink-soft ${familyClass(lang, "sans")}`}
+            className={`text-xs tracking-[0.18em] text-ink-soft ${familyClass(locale, "sans")}`}
           >
-            <span lang={htmlLang[lang]}>{pieces[lang]}</span>
+            <span lang={htmlLang[locale]}>{piecesPair[locale]}</span>
             <span aria-hidden="true" className="px-1.5">
               /
             </span>
-            <span lang={htmlLang[alt]}>{pieces[alt]}</span>
+            <span lang={htmlLang[alt]}>{piecesPair[alt]}</span>
           </p>
 
           <h1 className="mt-3 text-3xl leading-snug text-charcoal">
-            <span lang={htmlLang[lang]} className={familyClass(lang, "display")}>
-              {name[lang]}
+            <span lang={htmlLang[locale]} className={familyClass(locale, "display")}>
+              {name[locale]}
             </span>
             <span aria-hidden="true" className="px-2 text-linen">
               /
@@ -140,78 +245,82 @@ export default async function ProductPage({ params }: ProductPageProps) {
             </span>
           </h1>
 
-          <p className={`mt-6 text-5xl tracking-tight text-charcoal font-sans`}>
-            {formatHKD(product.priceCents)}
+          <p className="mt-6 text-5xl tracking-tight text-charcoal font-sans">
+            {formatMoney(product.priceCents, config.currency)}
           </p>
-          <p className={`mt-1 text-xs tracking-[0.18em] text-ink-soft ${familyClass(lang, "sans")}`}>
-            <span lang={htmlLang[lang]}>{priceLabel[lang]}</span>
+          <p className={`mt-1 text-xs tracking-[0.18em] text-ink-soft ${familyClass(locale, "sans")}`}>
+            <span lang={htmlLang[locale]}>{pick(priceLabel, locale)}</span>
             <span aria-hidden="true" className="px-1.5">
               /
             </span>
-            <span lang={htmlLang[alt]}>{priceLabel[alt]}</span>
+            <span lang={htmlLang[alt]}>{pick(priceLabel, alt)}</span>
           </p>
 
           <div className="mt-4">
             <StockBadge
               slug={product.slug}
-              unitsInDrop={product.units}
-              lang={lang}
+              unitsInDrop={product.unitsInDrop}
+              lang={locale}
             />
           </div>
 
           {/* Trust block (TRUST-01, TRUST-02): labelled facts, both languages. */}
           <dl className="mt-10 space-y-8 border-t border-sand pt-8">
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(lang, "sans")}`}>
-                <span lang={htmlLang[lang]}>{disclosureLabel[lang]}</span>
+              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
+                <span lang={htmlLang[locale]}>{pick(disclosureLabel, locale)}</span>
                 <span aria-hidden="true" className="px-1.5">
                   /
                 </span>
-                <span lang={htmlLang[alt]}>{disclosureLabel[alt]}</span>
+                <span lang={htmlLang[alt]}>{pick(disclosureLabel, alt)}</span>
               </dt>
               <dd className="mt-2">
                 <BilingualPair
-                  text={disclosure}
-                  lang={lang}
+                  text={disclosurePair}
+                  lang={locale}
                   className="text-sm leading-relaxed text-charcoal"
                 />
               </dd>
             </div>
 
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(lang, "sans")}`}>
-                <span lang={htmlLang[lang]}>{warrantyLabel[lang]}</span>
+              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
+                <span lang={htmlLang[locale]}>{pick(warrantyLabel, locale)}</span>
                 <span aria-hidden="true" className="px-1.5">
                   /
                 </span>
-                <span lang={htmlLang[alt]}>{warrantyLabel[alt]}</span>
+                <span lang={htmlLang[alt]}>{pick(warrantyLabel, alt)}</span>
               </dt>
               <dd className="mt-2">
                 <BilingualPair
-                  text={warrantyPending}
-                  lang={lang}
+                  text={warrantyPair}
+                  lang={locale}
                   className="text-sm leading-relaxed text-charcoal"
                 />
               </dd>
             </div>
 
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(lang, "sans")}`}>
-                <span lang={htmlLang[lang]}>{referenceLabel[lang]}</span>
+              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
+                <span lang={htmlLang[locale]}>{pick(referenceLabel, locale)}</span>
                 <span aria-hidden="true" className="px-1.5">
                   /
                 </span>
-                <span lang={htmlLang[alt]}>{referenceLabel[alt]}</span>
+                <span lang={htmlLang[alt]}>{pick(referenceLabel, alt)}</span>
               </dt>
               <dd className="mt-2">
                 {reference === null ? (
                   <BilingualPair
-                    text={referencePending}
-                    lang={lang}
+                    text={referencePendingPair}
+                    lang={locale}
                     className="text-sm leading-relaxed text-charcoal"
                   />
                 ) : (
-                  <ReferencePriceBlock reference={reference} lang={lang} />
+                  <ReferencePriceBlock
+                    reference={reference}
+                    lang={locale}
+                    currency={config.currency}
+                  />
                 )}
               </dd>
             </div>
@@ -222,17 +331,17 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 it. Commitment 7 is kept by saying nothing about delivery. */}
 
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(lang, "sans")}`}>
-                <span lang={htmlLang[lang]}>{electricalLabel[lang]}</span>
+              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
+                <span lang={htmlLang[locale]}>{pick(electricalLabel, locale)}</span>
                 <span aria-hidden="true" className="px-1.5">
                   /
                 </span>
-                <span lang={htmlLang[alt]}>{electricalLabel[alt]}</span>
+                <span lang={htmlLang[alt]}>{pick(electricalLabel, alt)}</span>
               </dt>
               <dd className="mt-2">
                 <BilingualPair
-                  text={localizedToBilingual(product.electrical)}
-                  lang={lang}
+                  text={productPair(product, "electrical")}
+                  lang={locale}
                   className="text-sm leading-relaxed text-charcoal"
                 />
               </dd>
@@ -240,23 +349,26 @@ export default async function ProductPage({ params }: ProductPageProps) {
           </dl>
 
           <div className="mt-10">
-            <WhatsAppButton subject={name} />
+            <WhatsAppButton
+              number={config.whatsappNumber}
+              message={buildEnquiryMessage(content, config.brandName, name)}
+            />
           </div>
         </div>
       </div>
 
       {/* Below the fold: why the object matters. */}
       <section className="mt-24 border-t border-sand pt-12">
-        <p className={`text-sm tracking-[0.22em] text-ink-soft ${familyClass(lang, "sans")}`}>
-          <span lang={htmlLang[lang]}>{heritageLabel[lang]}</span>
+        <p className={`text-sm tracking-[0.22em] text-ink-soft ${familyClass(locale, "sans")}`}>
+          <span lang={htmlLang[locale]}>{pick(heritageLabel, locale)}</span>
           <span aria-hidden="true" className="px-1.5">
             /
           </span>
-          <span lang={htmlLang[alt]}>{heritageLabel[alt]}</span>
+          <span lang={htmlLang[alt]}>{pick(heritageLabel, alt)}</span>
         </p>
         <BilingualPair
-          text={localizedToBilingual(product.heritage)}
-          lang={lang}
+          text={productPair(product, "heritage")}
+          lang={locale}
           family="display"
           className="mt-6 max-w-3xl text-2xl leading-relaxed text-charcoal"
         />
@@ -273,18 +385,21 @@ export default async function ProductPage({ params }: ProductPageProps) {
 function ReferencePriceBlock({
   reference,
   lang,
+  currency,
 }: {
   reference: ReferencePrice;
   lang: Locale;
+  currency: string;
 }) {
   const alt = altLocale(lang);
-  const range = referenceRange(reference);
-  const checked = referenceChecked(reference);
 
   return (
     <>
       <BilingualPair
-        text={range}
+        text={{
+          [locales[0]]: referenceRange(reference, currency, locales[0]),
+          [locales[1]]: referenceRange(reference, currency, locales[1]),
+        }}
         lang={lang}
         className="text-sm leading-relaxed text-charcoal"
       />
@@ -294,17 +409,17 @@ function ReferencePriceBlock({
           lang={htmlLang[locale]}
           className={`mt-1 text-sm leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
         >
-          {referenceSourceLabel[locale]}
-          {locale === "en" ? ": " : "："}
+          {pick(referenceSourceLabel, locale)}
+          {locale === locales[0] ? ": " : "："}
           <a
             href={reference.sourceUrl}
-            lang={htmlLang.en}
+            lang={htmlLang[locales[0]]}
             className="underline underline-offset-4 transition-colors duration-200 hover:text-ink-soft"
           >
-            {reference.source}
+            {reference.sourceName}
           </a>
-          {locale === "en" ? ", " : "，"}
-          {checked[locale]}
+          {locale === locales[0] ? ", " : "，"}
+          {referenceChecked(reference, locale)}
         </p>
       ))}
     </>
@@ -316,12 +431,17 @@ export async function generateMetadata({
 }: ProductPageProps): Promise<Metadata> {
   const { lang, slug } = await params;
   if (!isLocale(lang)) return {};
-  const product = getProduct(slug);
-  if (!product) return {};
+  const data = await loadProductData(slug);
+  if (data === null) return {};
 
-  const name = productDisplay(product);
+  const subject = productDisplay(data.product, lang);
   return {
-    title: `${pick(name, lang)} | HAVN`,
-    description: pick(productDescription(name), lang),
+    title: `${subject} | ${data.config.brandName}`,
+    description: productMetaDescription(
+      data.content,
+      data.config.brandName,
+      subject,
+      lang,
+    ),
   };
 }

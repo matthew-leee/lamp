@@ -32,7 +32,11 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as copy from "../lib/ui-copy.ts";
+import { siteContent } from "./fixtures/seed.mjs";
+
+/* Copy expectations come from the seed fixture rendered with the test brand
+   (D1: company copy lives in the database; the build bakes it). Structural
+   assertions (lang attributes, classes, aria) stay locale-based. */
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nextBin = path.join(webRoot, "node_modules", "next", "dist", "bin", "next");
@@ -102,14 +106,21 @@ async function get(pathname) {
   return { status: res.status, html: await res.text() };
 }
 
-/** Rendered HTML with every <script> block removed. */
+/** Rendered HTML with <script> blocks and React comment separators removed. */
 function visible(html) {
-  return html.replace(/<script[\s\S]*?<\/script>/g, "");
+  return html
+    .replace(/<script[\s\S]*?<\/script>/g, "")
+    .replace(/<!--.*?-->/g, "");
 }
 
 /** Occurrences of `needle` in `haystack`. */
 function count(haystack, needle) {
   return haystack.split(needle).length - 1;
+}
+
+/** RegExp-escape a literal string. */
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** The class attribute of the element whose text content is exactly `text`. */
@@ -127,7 +138,10 @@ test("/en serves English document", () =>
     const { status, html } = await get("/en");
     assert.equal(status, 200);
     assert.match(html, /<html lang="en"/);
-    assert.match(html, /<title>HAVN \| Curated designer homeware/);
+    assert.match(
+      html,
+      new RegExp(`<title>${escapeRegExp(siteContent("meta.home.title", "en"))}`),
+    );
   }));
 
 test("/zh-HK serves Traditional Chinese document", () =>
@@ -135,7 +149,10 @@ test("/zh-HK serves Traditional Chinese document", () =>
     const { status, html } = await get("/zh-HK");
     assert.equal(status, 200);
     assert.match(html, /<html lang="zh-Hant-HK"/);
-    assert.match(html, /<title>HAVN \| 精選設計家居/);
+    assert.match(
+      html,
+      new RegExp(`<title>${escapeRegExp(siteContent("meta.home.title", "zh-HK"))}`),
+    );
   }));
 
 test("/en: paired lead copy shares one type class (I18N-01 equal weight)", () =>
@@ -160,9 +177,11 @@ test("collection heading pair shares an identical class list (I18N-01)", () =>
   check(async () => {
     for (const locale of ["en", "zh-HK"]) {
       const body = visible((await get(`/${locale}`)).html);
-      const alt = locale === "en" ? "zh-HK" : "en";
-      const first = elementClassOf(body, copy.piecesHeading[locale]);
-      const second = elementClassOf(body, copy.piecesHeading[alt]);
+      const first = elementClassOf(body, siteContent("drop.piecesHeading", locale));
+      const second = elementClassOf(
+        body,
+        siteContent("drop.piecesHeading", locale === "en" ? "zh-HK" : "en"),
+      );
       assert.equal(
         first,
         second,
@@ -211,7 +230,12 @@ test("language of parts: /en marks its Chinese lead passage", () =>
   check(async () => {
     const { html } = await get("/en");
     const body = visible(html);
-    assert.match(body, /<p[^>]*lang="zh-Hant-HK"[^>]*>\s*HAVN 精選設計家居/);
+    assert.match(
+      body,
+      new RegExp(
+        `<p[^>]*lang="zh-Hant-HK"[^>]*>\s*${escapeRegExp(siteContent("hero.leadPaired", "zh-HK"))}`,
+      ),
+    );
   }));
 
 test("language of parts: /zh-HK marks its English lead passage", () =>
@@ -220,7 +244,9 @@ test("language of parts: /zh-HK marks its English lead passage", () =>
     const body = visible(html);
     assert.match(
       body,
-      /<p[^>]*lang="en"[^>]*>\s*HAVN, curated designer homeware/,
+      new RegExp(
+        `<p[^>]*lang="en"[^>]*>\s*${escapeRegExp(siteContent("hero.leadPaired", "en"))}`,
+      ),
     );
   }));
 
