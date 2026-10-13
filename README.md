@@ -146,6 +146,36 @@ The admin console
 is ENGLISH-ONLY by documented decision: it is operator tooling, and the
 bilingual contract is the storefront's customer contract, not the admin's.
 
+D2b task 3 adds the admin settings page (founder toggle spec; the seven
+COMPANY keys only — SCOPE-01): `brand.name`, `brand.name_native`,
+`site.url`, `contact.whatsapp`, `currency`,
+`analytics.ga_measurement_id`, `analytics.gsc_verification`. Every field
+renders a toggle: ON saves the value; OFF greys the field out and persists
+the key EMPTY (presence-wins: an empty override is explicitly OFF and beats
+the env default); deleting the override reverts to the env default. The
+required keys `brand.name` and `site.url` have NO toggle (never empty — the
+resolver throws without a brand name) and render a RED warning (the
+semantic `error` token in `globals.css` — the one saturated colour
+outside the storefront's glow register, admin-surface only) when the key
+resolves empty on BOTH layers (presence-wins: a defensively present
+empty override SUPPRESSES the env default and shows the warning too, and
+the OFF-row input renders MUTED but enabled — a disabled input is not
+submitted, which would trap the row OFF); `currency` has no OFF state
+(always resolves, default HKD, ISO-validated by the API). The page READS
+`GET /api/settings` (public, whitelist-only, INCLUDES empties) because the
+empty override is exactly what distinguishes OFF from reverted, and it
+WRITES through the web relay `/admin/api/settings/[key]` (plain HTML form
+POST -> same-origin guard + whoami-confirmed session -> server-side
+`PUT {"value"}` / `PUT {"value": ""}` (OFF) / `DELETE` (revert, no body) to
+`/api/admin/settings/{key}` with the session cookie + `X-Requested-With` ->
+303 with a slug-only redirect; the API re-validates everything). Saved
+changes propagate by the fetch-revalidate cycle (THE mechanism — the
+on-demand revalidation receiver was rejected, CHANGELOG Decisions D2b
+task 1): the content fetches carry a 60-second revalidation lease, and the
+next request after expiry serves the last-good value while the fresh one
+regenerates in the background (request-triggered stale-while-revalidate,
+no deadline promise); route-set changes still need a rebuild.
+
 Gate note for the behavioural suite `web/test/admin-routes.test.mjs`: it
 needs the Rust API + seeded DB up (as for `npm run build`) with the gate's
 bootstrap admin (set `ADMIN_USERNAME`/`ADMIN_PASSWORD` at API boot; the

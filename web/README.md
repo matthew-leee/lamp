@@ -162,13 +162,18 @@ resolution is override, then env default. Secrets are env-only.
 - Tests: `test/catalog-client.test.mjs`, `test/config.test.mjs`,
   `test/availability.test.mjs`, `test/availability-route.test.mjs`,
   `test/availability-lifecycle.test.mjs`, `test/i18n.test.mjs`,
-  `test/money.test.mjs`, `test/admin-client.test.mjs` and
+  `test/money.test.mjs`, `test/admin-client.test.mjs`,
+  `test/admin-relay.test.mjs`, `test/admin-settings.test.mjs`,
+  `test/admin-settings-relay.test.mjs` and
   `test/ui-copy.test.mjs` are unit suites (mocked
   fetch/env, no network); `test/routes.test.mjs`, `test/pages.test.mjs` and
   `test/admin-routes.test.mjs` are server-based behavioural suites
   (seed-fixture assertions). `test/admin-routes.test.mjs` additionally
   needs the API + seeded DB up with the gate bootstrap creds and a current
-  build (it fails loudly, never skips — see the root README gate note).
+  build (it fails loudly, never skips — see the root README gate note). The
+  DB-mutating behavioral settings suite is D2c scope (scratch Postgres
+  harness — see CHANGELOG Decisions, D2b task 3); the settings surface is
+  covered by the unit suites above.
 
 ## Live availability architecture (commitment 5b)
 

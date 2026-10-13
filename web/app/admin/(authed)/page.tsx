@@ -1,9 +1,11 @@
+import Link from "next/link";
+
 import { requireAdminSession } from "../../../lib/admin-session.ts";
 
 /*
-  Admin dashboard (D2b, ADMIN-01): the placeholder landing page of the
-  authenticated shell. Catalogue, settings and content editors land in the
-  next tasks (D2b 3-4 replace the placeholder line with real panels).
+  Admin dashboard (D2b, ADMIN-01): the landing page of the authenticated
+  shell. Settings is live (task 3, the founder toggle spec); products and
+  content editors land in task 4 (still a placeholder line).
 
   requireAdminSession() is called again here (layouts cannot pass props to
   pages) for the signed-in username — the second whoami is a cheap,
@@ -21,9 +23,20 @@ export default async function AdminDashboardPage() {
       <p className="text-lg leading-relaxed text-charcoal">
         Signed in as {username}
       </p>
-      <p className="text-base leading-relaxed text-ink-soft">
-        Catalogue, settings and content editors land in the next tasks.
-      </p>
+      <ul className="flex flex-col gap-2 text-base leading-relaxed">
+        <li>
+          <Link
+            href="/admin/settings"
+            className="underline transition-colors duration-200 hover:text-ink-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-glow"
+          >
+            Settings
+          </Link>{" "}
+          — company settings toggles (live).
+        </li>
+        <li className="text-ink-soft">
+          Products / content editors — placeholder for the next task.
+        </li>
+      </ul>
     </section>
   );
 }

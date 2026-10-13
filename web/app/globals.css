@@ -36,6 +36,17 @@
   */
   --color-glow: #e9a23b;
   --color-glow-ember: #b97a1f;
+
+  /*
+    Semantic error red (D2b): the founder toggle spec mandates a RED
+    warning for required settings empty of override AND env default
+    ("render NO toggle + red warning when empty") — glow-ember is amber
+    and does not satisfy it. This is an ADMIN-surface semantic token (the
+    admin console is operator tooling, not the storefront visual register:
+    the "glow as the only saturated colour" rule governs the CUSTOMER
+    surface). Contrast on bone: ~6.5:1 (AA for the warning text it marks).
+  */
+  --color-error: #a3261c;
 }
 
 /*

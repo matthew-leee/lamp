@@ -6,6 +6,66 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `web/` D2b task 3 (ADMIN-01, SCOPE-01): admin settings page per the
+  founder toggle spec — plain HTML forms with NO authored client JS,
+  English-only admin, `globals.css` token classes only (CSS-01). The seven
+  company keys in deliberate display order (brand.name, brand.name_native,
+  site.url, contact.whatsapp, currency, analytics.ga_measurement_id,
+  analytics.gsc_verification). Toggle semantics are PRESENCE-WINS
+  (CONFIG-01): ON saves the value; OFF greys out the input (server-rendered
+  from the persisted state — no client JS) and persists the key EMPTY;
+  "Delete override" reverts to the env default. The page READS
+  `GET /api/settings` (public, whitelist-only, INCLUDES empties) precisely
+  so OFF (empty override persisted) is distinguishable from reverted (no
+  row). Required keys `brand.name`/`site.url` render NO OFF button (the API
+  400s empty for them) and a RED warning (role=`alert`, the new semantic
+  `error` token in `globals.css` — `glow-ember` is amber and does not
+  satisfy the founder's "red warning"; the admin console is operator
+  tooling, so the storefront's "glow as the only saturated colour" rule
+  does not govern it) when the key resolves empty on BOTH layers —
+  PRESENCE-WINS TRUTH (review fix): a defensively present empty override
+  SUPPRESSES the env default (the resolver does not fall back for a
+  present key), so it shows the warning too, never the env value as if
+  effective; whitespace-only brand.name classifies ON but resolves empty
+  and warns as well. The OFF row's input renders MUTED but ENABLED
+  (review fix): a `disabled` input is not a successful control, so Save on
+  an OFF row would have silently re-persisted the empty override — the
+  muted classes carry the founder spec's "greys out" while Save with a
+  typed value turns the key back ON directly (the empty override persists
+  until the nonempty save; warnings merge row-model + resolver-failure
+  sources, never discarding one for the other). `currency` has no OFF state
+  (always resolves, code default HKD, ISO-validated by the API). Per row the
+  page shows the current-state note (override value / explicitly OFF / no
+  override + env default) and the effective value. Writes go through the
+  relay `web/app/admin/api/settings/[key]` (outside the `(authed)` group,
+  like the other relays): same-origin guard -> whoami-confirmed session ->
+  `PUT {"value"}` / `PUT {"value": ""}` (explicit OFF) / `DELETE` (no body —
+  the D2a delete handler extracts none) via `adminMutate` (session cookie +
+  `X-Requested-With` added server-side; the API re-validates everything —
+  UI hints are UX, not validation) -> 303 RELATIVE redirect with a
+  slug-only query (`?saved=<key>` / `?error=invalid|notauthenticated|network`
+  with a generic "Nothing saved." fallback; the API's raw error text never
+  enters a URL). DELETE 404 `settings override not found` maps to SAVED
+  (idempotent revert: already at the env default). `?saved=<key>` is echoed
+  only for keys of the closed set. `web/lib/admin-settings.ts` is the pure
+  injectable model (key sets + English labels/hints, raw `NEXT_PUBLIC_*` env
+  defaults, presence-wins classification, row models with `missingRequired`,
+  the result->slug mapping and `dispatchSettingAction`). The dashboard
+  placeholder now links Settings (products/content editors remain a
+  placeholder for task 4). 31 new unit tests
+  (`test/admin-settings.test.mjs` 23 + `test/admin-settings-relay.test.mjs`
+  9 — incl. the presence-wins required-empty pin, the whitespace-only
+  brand.name pin, the OFF->ON Save flow, and the DELETE-404 contract as an
+  independent literal string), 246 total; zero existing tests touched.
+  Review fixes folded in: the OFF-row input is muted-ENABLED (a disabled
+  input is not submitted — Save on an OFF row would have silently
+  re-persisted the empty override); the red warning uses the new semantic
+  `error` token (the spec says red; `glow-ember` is amber); required-empty
+  display is presence-wins honest (an empty override suppresses the env
+  default and warns, never shows env as effective); warnings merge
+  row-model and resolver sources; propagation copy describes the 60-second
+  revalidation lease + background regeneration (request-triggered
+  stale-while-revalidate), not a deadline promise.
 - `web/` D2b (ADMIN-01): admin sign-in page + session-cookie relay +
   session forwarding. The browser NEVER calls the Rust admin API directly:
   a plain HTML form POSTs to `web/app/admin/api/login`, which relays
@@ -338,6 +398,16 @@ All notable changes to this project are documented here. Format follows
   storefront, Rust + Next.js custom build, market strategy, 90-day launch plan.
 
 ### Decisions
+- **D2b (task 3) — the DB-mutating behavioral settings suite is deferred to
+  D2c (documented placement; matches the founder's migration-harness -> D2c
+  placement).** Form -> relay -> `PUT`/`DELETE` -> `GET /api/settings` state
+  assertions need a scratch Postgres: the shared verify DB is raced by the
+  storefront suites and a settings mutation is sitewide (brand, currency,
+  site URL), so a live mutation would poison parallel runs. Task 3 is
+  therefore covered by pure unit tests (`test/admin-settings.test.mjs`,
+  `test/admin-settings-relay.test.mjs` — classification, row models, exact
+  dispatch requests incl. cookie/XRW headers and slug mapping) plus the
+  architect live gate (lint, typecheck, full suite, manual curl flow).
 - **D2b (task 1) — the web-tier revalidation receiver is REJECTED (founder,
   2026-10-13).** The evaluated design (secret-guarded `POST /api/revalidate`
   web route calling `revalidateTag` on `catalogue` / `site-content` /
