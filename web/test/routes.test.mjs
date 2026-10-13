@@ -32,7 +32,10 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { siteContent } from "./fixtures/seed.mjs";
+import { siteContent, BRAND } from "./fixtures/seed.mjs";
+
+/* The canonical URL the behavioural build bakes (NEXT_PUBLIC_SITE_URL). */
+const SITE_URL = "http://localhost:3000";
 
 /* Copy expectations come from the seed fixture rendered with the test brand
    (D1: company copy lives in the database; the build bakes it). Structural
@@ -48,8 +51,24 @@ let serverOut = "";
 let serverErr = "";
 
 before(async () => {
+  // The spawned server renders regenerations at request time (the 60s
+  // fetch leases since T4) and reads the brand/site-URL config dynamically
+  // from process.env at RUNTIME — pin it here instead of trusting the
+  // ambient shell: a brand-less shell made every regen throw and race 404s
+  // whenever a suite ran more than 60s after the build. The API base is
+  // statically accessed and so inlined at build; setting it documents the
+  // gate's build value. The API + seeded DB must be reachable as for
+  // `npm run build`, because regens fetch live.
+  const env = { ...process.env };
+  env.NEXT_PUBLIC_SITE_URL = SITE_URL;
+  env.NEXT_PUBLIC_BRAND_NAME = BRAND;
+  env.NEXT_PUBLIC_API_URL = "http://127.0.0.1:18080";
+  delete env.NEXT_PUBLIC_WHATSAPP_NUMBER;
+  delete env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+  delete env.NEXT_PUBLIC_GSC_VERIFICATION;
   server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
     cwd: webRoot,
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   server.stdout.on("data", (d) => (serverOut += d));

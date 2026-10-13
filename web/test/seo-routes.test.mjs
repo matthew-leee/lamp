@@ -33,6 +33,16 @@ before(async () => {
   delete env.NEXT_PUBLIC_WHATSAPP_NUMBER;
   delete env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
   delete env.NEXT_PUBLIC_GSC_VERIFICATION;
+  // The spawned server renders regenerations at request time (60s fetch
+  // leases) and reads the brand/site-URL config dynamically from process.env
+  // at RUNTIME — pin the brand name and the canonical SITE_URL this suite
+  // asserts (a brand-less ambient shell made regens throw and race
+  // 404s/500s). The API base is statically accessed and so inlined at build
+  // (setting it documents the gate's build value); the API + seeded DB must
+  // be reachable as for the build, because regens fetch live.
+  env.NEXT_PUBLIC_SITE_URL = SITE_URL;
+  env.NEXT_PUBLIC_BRAND_NAME = BRAND;
+  env.NEXT_PUBLIC_API_URL = "http://127.0.0.1:18080";
   server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
     cwd: webRoot,
     env,

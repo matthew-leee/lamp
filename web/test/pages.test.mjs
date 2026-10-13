@@ -119,7 +119,18 @@ let serverErr = "";
 
 before(async () => {
   const env = { ...process.env };
-  delete env.NEXT_PUBLIC_API_URL;
+  // The spawned server renders regenerations at request time (60s fetch
+  // leases since T4) and reads the brand/site-URL config dynamically from
+  // process.env at RUNTIME — pin it instead of trusting the ambient shell:
+  // a brand-less shell made every regen throw and race 404s whenever this
+  // suite ran more than 60s after the build. (NEXT_PUBLIC_API_URL was
+  // previously DELETED here — a no-op for the built server, since the
+  // statically accessed value is inlined at build; setting it documents the
+  // gate's build value.) The API + seeded DB must be reachable as for
+  // `npm run build`, because regens fetch live.
+  env.NEXT_PUBLIC_SITE_URL = "http://localhost:3000";
+  env.NEXT_PUBLIC_BRAND_NAME = BRAND;
+  env.NEXT_PUBLIC_API_URL = "http://127.0.0.1:18080";
   delete env.NEXT_PUBLIC_WHATSAPP_NUMBER;
   server = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
     cwd: webRoot,

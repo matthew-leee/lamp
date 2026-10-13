@@ -70,7 +70,6 @@ All notable changes to this project are documented here. Format follows
   integration; validation-before-DB and auth/CSRF/deletes/method-fallback
   pinned with `pool: None`).
 
-### Added
 - `api/` D2a (start): admin auth schema + dependencies.
   Migration `0004_admin.sql`: `admin_users` table (username `TEXT UNIQUE`
   with cookie/log-safe charset CHECK `^[A-Za-z0-9_-]{1,64}$`, argon2id
@@ -83,7 +82,6 @@ All notable changes to this project are documented here. Format follows
   Dependencies: `argon2` 0.5, `hmac` 0.12, `sha2` 0.10. Gate green before the
   change: fmt clean, clippy `-D warnings` clean, 31/31 tests.
 
-### Added
 - `web/` M2 T4 SEO surface: Product JSON-LD on every product page (name,
   sku, brand, absolute offer URL, price as an integer-math string in the
   configured currency; `availability` deliberately omitted — stock is live
@@ -112,7 +110,6 @@ All notable changes to this project are documented here. Format follows
   (behavioral: JSON-LD shape, canonical/hreflang, 18-URL sitemap, robots
   directives, GA/GSC off-by-default, 404 stylesheet) — 166 total.
 
-### Added
 - `api/` D1.2 read endpoints: GET /api/catalogue (active SKUs only, ordered
   by id; locale-keyed content, labelled reference price or null, numbered
   pieces, derived `units_in_drop` and `total_pieces` = COUNT(*), assembled in
@@ -152,6 +149,26 @@ All notable changes to this project are documented here. Format follows
   seeded copy + catalogue the behavioural suites assert against.
 
 ### Changed
+- `web/` behavioral test suites (`routes`, `pages`, `seo-routes`) pin the
+  spawned server's runtime config instead of trusting the ambient shell:
+  `NEXT_PUBLIC_SITE_URL` (the asserted canonical URL, localhost:3000) and
+  `NEXT_PUBLIC_BRAND_NAME` (fixture brand) are set, and the WhatsApp/GA/GSC
+  vars are deleted per-suite as before. `NEXT_PUBLIC_API_URL` is set to the
+  gate's build value for clarity — it is statically accessed and so inlined
+  into the server bundle at build time; only a matching rebuild redirects a
+  spawned server (a D2c scratch harness must rebuild with its own value).
+  Why: since T4 the 60s fetch leases mean a `next start` server renders
+  regenerations at request time, and the brand/site-URL config is read
+  dynamically from `process.env` at RUNTIME (unlike the inlined API base) —
+  a suite run >60s after `next build` from a brand-less shell made every
+  regen throw (`resolveSiteConfig: brand name is required`) and race
+  404s/500s into the assertions (reproduced: same tree+build flipped between
+  166/166 and 164/2 run-to-run). `pages.test.mjs` previously DELETED
+  `NEXT_PUBLIC_API_URL` — a no-op for the built server (the value is
+  inlined), so the real ambient dependency on brand/site-url went unpinned.
+  Documented precondition (same as the build): API + seeded DB reachable
+  (regens fetch live). Stabilized: 3x consecutive 166/166 with expired
+  leases.
 - `web/` D1.3: the inline TS catalogue is DELETED (`lib/catalog.ts`): SKUs,
   prices, bilingual copy, art config, reference prices, drop numbering and
   site copy now live in Postgres (migrations 0002/0003) served through the
@@ -221,6 +238,30 @@ All notable changes to this project are documented here. Format follows
   storefront, Rust + Next.js custom build, market strategy, 90-day launch plan.
 
 ### Decisions
+- **D2b (task 1) — the web-tier revalidation receiver is REJECTED (founder,
+  2026-10-13).** The evaluated design (secret-guarded `POST /api/revalidate`
+  web route calling `revalidateTag` on `catalogue` / `site-content` /
+  `settings`) works in isolation but cannot ship in this architecture: on-demand
+  tag invalidation deletes the full route cache and `dynamicParams = false`
+  SSG pages cannot re-render at request time — Next.js answers
+  `NoFallbackError`: sitewide 404 + sitemap 500 until a full rebuild
+  (reproduced live against Next 15.5.27; correct secret -> 200 -> sitewide
+  404, webhook off -> the same mutation lands clean; externally confirmed
+  standard behavior — Netlify support forums, vercel/next.js discussion
+  #86503). The 60s fetch-revalidate window (live since D1/T4) is THE
+  admin-mutation propagation mechanism for EXISTING routes (prices, copy,
+  reference prices, pieces, settings): request-triggered
+  stale-while-revalidate — the first request after a lease expiry serves
+  last-good, and the background regen lands for the next request (observed
+  stale at +72s, fresh at +80s; founder: price updates are infrequent).
+  Route-set changes (create/activate/deactivate altering the slug set)
+  deliberately require a rebuild — `generateStaticParams` +
+  `dynamicParams = false` is the no-request-time-notFound() contract, and a
+  deactivated SKU serves last-good until a rebuild retires it (pinned by
+  the D2c inactive-SKU test). Checkout charges the database price per 5b.
+  api/'s
+  `REVALIDATE_URL`/`REVALIDATE_SECRET` webhook stays a dormant env-unset
+  capability; do not set them in this architecture.
 - Custom build (Rust/Axum backend, Next.js frontend) over hosted commerce.
 - Hosting on existing Hetzner CX33 (Helsinki) with Cloudflare CDN in front;
   Singapore CX33 as the upgrade path if latency ever matters.

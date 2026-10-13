@@ -107,10 +107,49 @@ transaction, then fires the on-demand revalidation webhook (commitment 5b):
 a fire-and-forget `POST {"secret", "tags"}` to `REVALIDATE_URL` with tags
 `catalogue` / `site-content` / `settings`. `REVALIDATE_URL` must be an
 absolute `http://` URL (the webhook client has no TLS) and needs
-`REVALIDATE_SECRET`; unset = webhook off (the 60s ISR window is the
-fallback). `LOCALES` (default `en,zh-HK`, exactly two distinct BCP-47 tags —
+`REVALIDATE_SECRET`; unset = webhook off — a dormant capability in this
+architecture (see the D2b decision below; do not set these). `LOCALES`
+(default `en,zh-HK`, exactly two distinct BCP-47 tags —
 the mirror of the web tier's `NEXT_PUBLIC_LOCALES` parser) gates admin
 content writes. Admin GET responses carry `Cache-Control: no-store`.
+
+**D2b decision (founder, 2026-10-13): the web-tier revalidation receiver is
+REJECTED.** The evaluated design — a secret-guarded `POST /api/revalidate`
+web route calling `revalidateTag` on `catalogue` / `site-content` /
+`settings` — works in isolation but cannot ship in this architecture:
+on-demand tag invalidation deletes the full route cache, and
+`dynamicParams = false` SSG pages cannot be re-rendered at request time.
+Next.js answers `NoFallbackError`: every page 404s and the sitemap 500s
+until a full rebuild — reproduced live against Next 15.5.27 (correct secret
+-> 200 -> sitewide 404; webhook off -> same mutation lands clean), and
+externally confirmed as standard `dynamicParams = false` handling (Netlify
+support forums; vercel/next.js discussion #86503). The 60-second fetch
+revalidate window (live on every content fetch since D1/T4) is therefore
+THE propagation mechanism for admin mutations to EXISTING routes (prices,
+copy, reference prices, pieces, settings). The window is request-triggered
+stale-while-revalidate: the first request after a 60s lease expiry serves
+the last-good page while a background regen renders from the live API, and
+the next request serves the regenerated page (observed: stale at +72s,
+fresh at +80s). Open tabs do not live-update; checkout charges the
+authoritative database price, never the page (commitment 5b: a 60s-old
+price beats a blanked one). ROUTE-SET changes are deliberately outside the
+window: slugs are fixed at build time by `generateStaticParams` with
+`dynamicParams = false` (the no-request-time-`notFound()` contract), so a
+created or activated product needs a rebuild to gain a route, and a
+deactivated product serves its last-good page until a rebuild retires it
+(the D2c inactive-SKU test pins this). Live stock keeps its separate
+fail-closed channel and never bakes.
+
+Operational note from the same live evaluation: regens read the runtime
+config at request time — brand name and site URL via dynamic
+`process.env[envName]` access (`lib/config.ts`), NOT inlined at build — so
+a production `next start` REQUIRES the `NEXT_PUBLIC_*` config in its
+environment. A server started without it serves baked pages, but its
+regens throw (`resolveSiteConfig: brand name is required`), and the
+failed regens were observed racing 404s/500s onto existing routes: missing
+runtime env is an operational breakage, not a safe freeze — fix the env and
+restart. (`NEXT_PUBLIC_API_URL` is statically accessed and so inlined into
+the server bundle at build time; only the build needs it.)
 
 ## Business documents
 
