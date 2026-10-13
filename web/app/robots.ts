@@ -5,9 +5,9 @@ import { requiredSiteUrl, resolveSiteConfig } from "@/lib/config";
 import { absoluteUrl } from "@/lib/seo";
 
 /**
- * Robots (T4): allow everything public, keep the API routes out of the
- * index, and point at the sitemap with an absolute URL from the canonical
- * site URL (required).
+ * Robots (T4): allow everything public, keep the API routes and the private
+ * admin surface out of the index, and point at the sitemap with an absolute
+ * URL from the canonical site URL (required).
  */
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
@@ -22,7 +22,7 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
   const siteUrl = requiredSiteUrl(config);
 
   return {
-    rules: [{ userAgent: "*", allow: "/", disallow: ["/api/"] }],
+    rules: [{ userAgent: "*", allow: "/", disallow: ["/api/", "/admin/"] }],
     sitemap: absoluteUrl(siteUrl, "sitemap.xml"),
   };
 }

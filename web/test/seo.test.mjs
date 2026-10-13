@@ -91,11 +91,23 @@ test("productJsonLd price pads minor digits (non-zero cents, integer math)", () 
 });
 
 test("requiredSiteUrl: fail-loud when the canonical URL is unset", () => {
-  const config = resolveSiteConfig({ "brand.name": BRAND });
-  assert.equal(config.siteUrl, null);
-  assert.throws(() => requiredSiteUrl(config), /canonical site URL is required/);
-  const withUrl = resolveSiteConfig({ "brand.name": BRAND, "site.url": SITE });
-  assert.equal(requiredSiteUrl(withUrl), SITE);
+  // Ambient-hardened (D2b): resolveSiteConfig reads NEXT_PUBLIC_SITE_URL
+  // from process.env; a gate shell that exports it for `npm run build` must
+  // not leak it into this "unset" assertion. Delete it for the duration,
+  // restore after (save/restore house pattern).
+  const savedSiteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  delete process.env.NEXT_PUBLIC_SITE_URL;
+  try {
+    const config = resolveSiteConfig({ "brand.name": BRAND });
+    assert.equal(config.siteUrl, null);
+    assert.throws(() => requiredSiteUrl(config), /canonical site URL is required/);
+    const withUrl = resolveSiteConfig({ "brand.name": BRAND, "site.url": SITE });
+    assert.equal(requiredSiteUrl(withUrl), SITE);
+  } finally {
+    if (savedSiteUrl !== undefined) {
+      process.env.NEXT_PUBLIC_SITE_URL = savedSiteUrl;
+    }
+  }
 });
 
 test("validGaId: only G-XXXX shapes pass; anything else is OFF", () => {

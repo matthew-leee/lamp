@@ -203,7 +203,7 @@ test("/sitemap.xml: both locales x (home + 8 products) = 18 absolute URLs", () =
     }
   }));
 
-test("/robots.txt: allow all, disallow /api/, absolute sitemap URL", () =>
+test("/robots.txt: allow all, disallow /api/ + /admin/, absolute sitemap URL", () =>
   check(async () => {
     const { status, text } = await get("/robots.txt");
     assert.equal(status, 200);
@@ -212,6 +212,8 @@ test("/robots.txt: allow all, disallow /api/, absolute sitemap URL", () =>
     assert.match(text, /^user-agent: \*$/mi);
     assert.match(text, /^allow: \/$/mi);
     assert.match(text, /^disallow: \/api\/$/mi);
+    // The private admin surface (D2b) is never crawled, same shape as /api/.
+    assert.match(text, /^disallow: \/admin\/$/mi);
     assert.match(text, new RegExp(`^Sitemap: ${SITE_URL}/sitemap.xml$`, "m"));
   }));
 

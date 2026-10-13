@@ -49,7 +49,10 @@ font cache lives in `.next/cache`.
 - The root layout is `app/[lang]/layout.tsx`: it is the only place that can
   set `<html lang>` (`en` or `zh-Hant-HK`) without middleware. A root
   `app/layout.tsx` cannot see `[lang]` params (verified: it receives `{}`),
-  which is why there is none.
+  which is why there is none. The admin tree (D2b) therefore carries its
+  OWN document root at `app/admin/layout.tsx` (`<html lang="en">` — the
+  admin console is deliberately English-only operator tooling): Next exits
+  the build for any page whose chain has no root layout.
 - Anything else (unknown locale, unknown subpath, `/`) returns HTTP 404 from
   `app/global-not-found.tsx` (Next 15 `experimental.globalNotFound`): the bare
   shell owns `<html lang="en">` (documented default, `lib/i18n.ts
@@ -159,9 +162,13 @@ resolution is override, then env default. Secrets are env-only.
 - Tests: `test/catalog-client.test.mjs`, `test/config.test.mjs`,
   `test/availability.test.mjs`, `test/availability-route.test.mjs`,
   `test/availability-lifecycle.test.mjs`, `test/i18n.test.mjs`,
-  `test/money.test.mjs` and `test/ui-copy.test.mjs` are unit suites (mocked
-  fetch/env, no network); `test/routes.test.mjs` and `test/pages.test.mjs`
-  are server-based behavioural suites (seed-fixture assertions).
+  `test/money.test.mjs`, `test/admin-client.test.mjs` and
+  `test/ui-copy.test.mjs` are unit suites (mocked
+  fetch/env, no network); `test/routes.test.mjs`, `test/pages.test.mjs` and
+  `test/admin-routes.test.mjs` are server-based behavioural suites
+  (seed-fixture assertions). `test/admin-routes.test.mjs` additionally
+  needs the API + seeded DB up with the gate bootstrap creds and a current
+  build (it fails loudly, never skips — see the root README gate note).
 
 ## Live availability architecture (commitment 5b)
 

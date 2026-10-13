@@ -99,6 +99,62 @@ D2a also adds the admin CRUD API (`api/src/admin_crud.rs`), all behind the
   default)
 - `GET /api/admin/audit-log` (last 200 rows)
 
+D2b adds the admin web layer (task 2, login + session forwarding). The
+browser NEVER calls the Rust admin API directly for admin: the admin UI is
+server-rendered plain HTML (no AUTHORED client JS — the forms work without
+JavaScript; Next's framework scripts still ship) and a web route relays
+sign-in —
+form POST -> `web/app/admin/api/login` -> server-side fetch to
+`POST /api/admin/login` (the relay adds `X-Requested-With` itself) ->
+parse the API's `Set-Cookie` and re-set the SAME cookie on the WEB
+response (`admin_session` with the API's session semantics: HttpOnly,
+SameSite=Lax, Path=/, Max-Age from the API, Secure iff the API sent it;
+the relay is SEMANTIC — Next normalizes casing and derives `Expires`) ->
+303 redirect with a RELATIVE `Location` (host-stable: an absolute URL from
+`request.url` would bounce a 127.0.0.1 visitor to `localhost` and leak the
+internal origin behind a reverse proxy). After that the browser presents
+`admin_session` to the web
+host; admin server components read it and FORWARD it as a `Cookie` header
+on server-side GETs to the Rust admin API (session forwarding), and the
+`(authed)` shell is gated by `GET /api/admin/whoami`. Logout is a cookie
+clear (Max-Age=0) on the web tier — the sessions are stateless, so no API
+call exists or is needed. This relay is production-correct however the API
+is hosted (host-scoped cookie), keeps the admin UI zero-CORS against the
+API, and leaves the API's `X-Requested-With`/CSRF contract untouched.
+Web-side CSRF posture: BOTH relay routes carry a same-origin guard
+(`lib/admin-relay.ts`): a browser POST's `Origin` must match the request's
+`Host` AUTHORITY, with BOTH sides normalized through URL parsing (default
+ports strip, IPv6 canonicalizes); requests without `Origin` pass
+(curl/tests — non-browser tools carry no ambient credentials); malformed
+or unparseable `Origin` (incl. the sandboxed `null`) rejects 403. The
+comparison is deliberately SCHEME-AGNIC (a route cannot know the
+deployment scheme from first principles): cross-SITE posts — the CSRF
+threat model — always mismatch, and a same-authority scheme confusion
+requires broken TLS; a reverse proxy must forward `Host`/`Origin`
+consistently (M3 note). That closes cross-site logout-CSRF; the residual
+login-CSRF (forcing a victim INTO the attacker's own session) is accepted
+under the single-operator threat model — the API's XRW guard is
+server-side-only (the relay adds the header on every call), so it is not
+browser protection here; revisit if admin ever goes multi-user (M3+).
+Sign-in/relay failures redirect with safe slugs only — credential verdicts
+say invalid/form; EVERYTHING else (busy, not-configured, database down or
+unconfigured, XRW missing — a relay bug, not a verdict — unreachable,
+200-without-cookie, and any unknown string) says
+retry-later, never "wrong password" when nothing was judged — and the
+page maps slugs through a `Map`, so `?error=__proto__` renders nothing.
+The admin console
+is ENGLISH-ONLY by documented decision: it is operator tooling, and the
+bilingual contract is the storefront's customer contract, not the admin's.
+
+Gate note for the behavioural suite `web/test/admin-routes.test.mjs`: it
+needs the Rust API + seeded DB up (as for `npm run build`) with the gate's
+bootstrap admin (set `ADMIN_USERNAME`/`ADMIN_PASSWORD` at API boot; the
+suite reads `ADMIN_TEST_USERNAME`/`ADMIN_TEST_PASSWORD`, defaults
+`admin-test` / `test-admin-password-fake-0001` — the api gate recipe
+values, obviously fake, never real credentials) and a current `npm run
+build` containing the admin routes. The suite is skip-free: it fails
+loudly with the recipe when the API/DB or the build is missing.
+
 Every mutation validates BEFORE any database work (free-text values reject
 NUL bytes — Postgres TEXT cannot hold them — and reference-price source URLs
 require a non-empty host and valid port), then mutates and writes an

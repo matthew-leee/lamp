@@ -22,7 +22,13 @@ const CURRENCY_ENV = "NEXT_PUBLIC_CURRENCY";
 const SITE_URL_ENV = "NEXT_PUBLIC_SITE_URL";
 const API_ENV = "NEXT_PUBLIC_API_URL";
 
-/** Save/restore the env keys a test touches. */
+/** Save/restore the env keys a test touches. Clean-slate semantics (D2b
+ * hardening): every key the config surface reads is DELETED first and only
+ * the explicit overrides are set — ambient shell exports (e.g. a gate
+ * recipe exporting NEXT_PUBLIC_SITE_URL for `npm run build` in the same
+ * shell) must never leak into `resolveSiteConfig`, which reads
+ * `process.env` directly. Previously an exported NEXT_PUBLIC_SITE_URL
+ * flipped this suite's "safe defaults" assertions run-to-run. */
 function withEnv(overrides, fn) {
   const keys = [
     BRAND_ENV,
@@ -38,6 +44,7 @@ function withEnv(overrides, fn) {
     "NEXT_PUBLIC_CONTENT_REVALIDATE_SECONDS",
   ];
   const saved = new Map(keys.map((k) => [k, process.env[k]]));
+  for (const k of keys) delete process.env[k];
   for (const [k, v] of Object.entries(overrides)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;

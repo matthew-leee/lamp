@@ -6,6 +6,95 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `web/` D2b (ADMIN-01): admin sign-in page + session-cookie relay +
+  session forwarding. The browser NEVER calls the Rust admin API directly:
+  a plain HTML form POSTs to `web/app/admin/api/login`, which relays
+  server-side to `POST /api/admin/login` (adding `X-Requested-With` itself),
+  parses the API's `Set-Cookie` and re-sets the SAME cookie on the WEB
+  response (`admin_session`; HttpOnly; SameSite=Lax; Path=/; Max-Age from
+  the API; Secure iff the API sent it) before a 303. The browser then
+  presents `admin_session` to the web host and admin server components
+  FORWARD it as a `Cookie` header on server-side GETs to the Rust admin API
+  (`requireAdminSession` gates every (authed) page via
+  `GET /api/admin/whoami`); logout is a cookie clear (stateless sessions —
+  no API call exists or is needed). Host-scoped cookie, zero CORS against
+  the API, the API's XRW/CSRF contract untouched. Web-side CSRF posture
+  (review-hardened): BOTH relay routes carry a same-origin guard
+  (`lib/admin-relay.ts`): a browser POST's `Origin` must match the request's
+  `Host` AUTHORITY, both sides URL-normalized (default ports strip, IPv6
+  canonicalizes; no-`Origin` requests pass for non-browser tools; malformed
+  `Origin` incl. the sandboxed `null` rejects 403); the comparison is
+  deliberately SCHEME-AGNIC (a route cannot know the deployment scheme:
+  cross-SITE posts always mismatch, a same-authority scheme confusion needs
+  broken TLS, and a reverse proxy must forward `Host`/`Origin` consistently,
+  M3 note) — which closes cross-site logout-CSRF; the residual
+  login-CSRF (FORCE-INTO-ATTACKER-SESSION) is explicitly accepted
+  under the single-operator threat model (the API's XRW guard is
+  SERVER-side-only: the relay adds the header on every call, so it is not
+  browser protection here; revisit if admin ever goes multi-user, M3+).
+  Relay 303s carry RELATIVE `Location` values (host-stable: an absolute
+  URL from `request.url` would bounce a 127.0.0.1 visitor to `localhost`
+  and leak the internal origin behind a reverse proxy).
+  `lib/admin-client.ts` is the pure injectable client (Set-Cookie
+  parse/serialize round-tripping attribute tokens, the exact
+  status->error contract strings, fail-closed "login succeeded but no
+  session cookie" on a 200 without an `admin_session`-named non-empty
+  cookie — the pick is BY NAME among all Set-Cookie lines, so a 200 minting
+  any other cookie is not a session; the `fetchTimeoutMs` abort budget
+  covers the BODY READ TOO — the body races the same abort event, so an
+  upstream that answers headers then stalls cannot hang the relay (login
+  needs only headers, so it still succeeds; whoami/read failures resolve
+  fail-closed); never throws, never logs secrets);
+  `lib/admin-session.ts` is the thin `next/headers` glue (cookie fidelity
+  is SEMANTIC: Next normalizes casing/order and derives `Expires` from
+  Max-Age). Relay errors
+  redirect with SAFE SLUGS only (invalid/form/notready/busy/network —
+  credential verdicts are the ONLY strings that may say "wrong password";
+  every other failure — infra failures incl. `database not configured`, XRW
+  missing (a relay bug: the API rejects XRW-less BEFORE judging), and ANY
+  UNKNOWN string — maps to retry-later guidance; the
+  API's raw error strings never enter a URL; the page maps slugs through a
+  `Map`, so `?error=__proto__` renders no message and cannot index a
+  prototype). The (authed) route group
+  `app/admin/(authed)` (login + relay routes stay OUTSIDE it) renders a
+  minimal shell + dashboard placeholder that tasks 3-4 replace with the
+  editors. Admin is deliberately ENGLISH-ONLY (operator tooling is not the
+  bilingual customer contract, I18N-01; `lang="en"` document root) and
+  carries a second document root `app/admin/layout.tsx`: the app has no
+  root `app/layout.tsx` by design and Next 15 exits the build for a page
+  whose chain has no root layout. The sign-in page reads the brand from raw
+  env with a neutral "Admin" fallback (deliberately NOT `resolveSiteConfig`
+  — it must render when the API is down). Token classes from
+  `globals.css` only (CSS-01); no AUTHORED client JS — the forms are plain
+  HTML that works without JavaScript (Next's framework hydration scripts
+  still ship). Tests:
+  `test/admin-client.test.mjs` (unit: header/body/XRW assertions,
+  parse/serialize round-trip, exact status->error mappings, name-validated
+  cookie pick incl. wrong-name/empty/multi-line, `loginErrorSlug`
+  classification incl. unknown->retry, stalled-body login/whoami under the
+  abort budget) + `test/admin-relay.test.mjs` (unit: guard authority
+  normalization — default ports both sides, IPv6 canonicalization, port
+  mismatch, scheme-agnostic documented pass, malformed/null Origin, missing
+  Host, relative-303 shape) +
+  `test/admin-routes.test.mjs` (behavioral: form shape + relay action,
+  exact slug message, `__proto__` renders nothing, no-cookie and
+  garbage-cookie redirects, blank-form slug, wrong-creds 303 + no cookie,
+  right-creds 303 + relayed Path/HttpOnly/Lax/Max-Age (no invented Secure;
+  redacted diagnostics — bearer tokens never printable by a failing
+  assertion), same-origin Origin passes, cross-origin login/logout 403,
+  forwarded-cookie dashboard "signed in as <user>", logout deletes with
+  Max-Age=0 exactly; RELATIVE Location pinned) — 49 new tests
+  (27 admin-client unit + 9 admin-relay unit + 13 admin-routes behavioral),
+  215 total. The behavioral suite
+  is fail-loud and SKIP-FREE: it probes the API + seeded DB + gate
+  bootstrap creds before running (`ADMIN_TEST_USERNAME` /
+  `ADMIN_TEST_PASSWORD`, defaults `admin-test` /
+  `test-admin-password-fake-0001` — the api gate recipe values, obviously
+  fake) and detects a stale `.next` build with an explicit rebuild
+  message. Live gate evidence: 215/215 twice (ambient exports and clean
+  shell), build 23 pages + 4 dynamic admin routes, curl end-to-end
+  (form -> 303 + cookie -> forwarded whoami dashboard -> logout Max-Age=0;
+  cross-origin 403s; relative Location; `__proto__` renders nothing).
 - `api/` D2a: admin auth surface (`src/admin.rs`). `POST /api/admin/login` +
   `GET /api/admin/whoami`; stateless HMAC-SHA256 session cookies
   (base64url `{sub,exp}` payload, `SESSION_COOKIE_NAME`/`SESSION_TTL_SECS`,
@@ -149,6 +238,9 @@ All notable changes to this project are documented here. Format follows
   seeded copy + catalogue the behavioural suites assert against.
 
 ### Changed
+- `web/` `app/robots.ts` now disallows `/admin/` alongside `/api/` (the
+  private admin surface is never crawled) and the `seo-routes` robots pin
+  requires the new directive (`test/seo-routes.test.mjs`).
 - `web/` behavioral test suites (`routes`, `pages`, `seo-routes`) pin the
   spawned server's runtime config instead of trusting the ambient shell:
   `NEXT_PUBLIC_SITE_URL` (the asserted canonical URL, localhost:3000) and
@@ -168,7 +260,15 @@ All notable changes to this project are documented here. Format follows
   inlined), so the real ambient dependency on brand/site-url went unpinned.
   Documented precondition (same as the build): API + seeded DB reachable
   (regens fetch live). Stabilized: 3x consecutive 166/166 with expired
-  leases.
+  leases. Unit suites hardened the same way (D2b task 2): `config.test`
+  `withEnv` is now CLEAN-SLATE — every config-surface env key is deleted
+  before the overrides are set, so a gate shell exporting
+  `NEXT_PUBLIC_SITE_URL` (for `npm run build`) can no longer flip the
+  "safe defaults" assertions run-to-run (reproduced: same tree+build
+  flipped 204/206 and 206/206 with vs without ambient exports); `seo.test`
+  `requiredSiteUrl` deletes the ambient site URL for its "unset" assertion
+  with save/restore. Gate proven BOTH ways: 215/215 with ambient exports
+  and 215/215 clean.
 - `web/` D1.3: the inline TS catalogue is DELETED (`lib/catalog.ts`): SKUs,
   prices, bilingual copy, art config, reference prices, drop numbering and
   site copy now live in Postgres (migrations 0002/0003) served through the
