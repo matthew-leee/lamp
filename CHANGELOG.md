@@ -6,6 +6,15 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `web/lib`: catalogue + availability data layer (M2 T2) — 8-SKU bilingual
+  catalogue with integer-cent prices, drop numbering 01-16, labelled reference
+  prices with source/date (MyConcept Hong Kong, checked 2026-10-12; PH 1/1
+  Piano intentionally null pending verification), heritage and
+  verified-facts-only electrical copy (no plug promises before inspection).
+  `fetchAvailability()` reads `/api/products` with 60s ISR and returns null
+  (never throws, never fabricates) on any failure, so pages cannot display
+  unconfirmed stock (commitment 5b). 23 unit tests; `formatHKD` integer-cents
+  formatter.
 - `web/`: HAVN storefront skeleton — Next.js 15.5 App Router, React 19, strict
   TypeScript, Tailwind CSS v4. Bilingual locale routing (`/en`, `/zh-HK`) with
   per-locale `<html lang>`, equal-weight paired copy (I18N-01) and WCAG 3.1.2

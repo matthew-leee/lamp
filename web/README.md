@@ -31,7 +31,7 @@ versions are exact so the Windows dev environment and CI resolve identically.
 | `npm run start` | Serve the production build. |
 | `npm run lint` | ESLint, flat config (`eslint.config.mjs`), `next/core-web-vitals` + `next/typescript`. |
 | `npm run typecheck` | `tsc --noEmit` (strict). |
-| `npm run test` | Behavioral route tests (`node --test`) against a spawned production server. Requires a prior `npm run build`. |
+| `npm run test` | `node --test "test/*.test.mjs"`: behavioral route tests against a spawned production server, plus pure unit tests for the data layer. The route suite requires a prior `npm run build`; the unit tests do not. |
 
 Note: `tsc` reads Next's generated types from `.next/types`. Run
 `npm run build` once after changing route/layout files if `typecheck` reports
@@ -91,10 +91,33 @@ Copy `.env.example` to `.env.local` and fill in:
 - `NEXT_PUBLIC_GA_MEASUREMENT_ID` GA4 ID, empty disables GA.
 - `NEXT_PUBLIC_GSC_VERIFICATION` Search Console token, empty omits the meta tag.
 
-## Scope of this skeleton (T1)
+## Catalogue and availability data layer (T2)
+
+- `lib/money.ts` integer-cents money helpers. `formatHKD(cents)` renders
+  whole dollars as `HK$1,615` and non-zero cents as `HK$1,234.56`; throws
+  `RangeError` on negative or non-integer input. Money is integer cents end
+  to end; division happens for display only.
+- `lib/catalog.ts` the static opening-drop catalogue (content/catalogue role
+  per DATA-01): 8 Louis Poulsen SKUs with bilingual model and colourway
+  names, units, integer-cent prices, drop numbers 01-16, heritage and
+  verified-facts-only electrical copy, and labelled reference prices
+  (TRUST-02: source + checked date; `null` for the PH 1/1 Piano Table, whose
+  UI says verification pending). Exports the types, `CATALOG`,
+  `getProduct(slug)`, `totalUnits` and `DROP { totalPieces: 16 }`.
+- `lib/availability.ts` server-side availability client. `fetchAvailability()`
+  returns `Map<slug, available>` (`stock_total - stock_reserved`) from
+  `${NEXT_PUBLIC_API_URL}/api/products` with `next: { revalidate: 60 }` (ISR,
+  stale at most 60s). On any failure it returns `null`, never throws and
+  never fabricates numbers: pages must not display stock they cannot confirm.
+- Tests: `test/catalog.test.mjs` and `test/availability.test.mjs` are pure
+  unit tests (mocked `fetch`, no network); `test/routes.test.mjs` remains the
+  behavioral route suite.
+
+## Scope of this skeleton (T1, extended by T2)
 
 Home placeholder per locale, locale routing, fonts, design tokens, env
 template, lint + typecheck wired. Not yet: product pages, cart, checkout,
 currency/price rendering (money will be integer minor units, never floats),
 GA/GSC wiring, SEO surface (hreflang, JSON-LD, sitemap), `output: "standalone"`
-for the Docker deploy.
+for the Docker deploy. T2 added the catalogue + availability data layer
+above; not yet: product/cart/checkout UI that renders them.
