@@ -9,6 +9,7 @@ import {
 } from "next/font/google";
 
 import AvailabilityProvider from "@/components/availability-context";
+import AnalyticsScripts from "@/components/analytics";
 import { htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
 import {
   availabilityTtlMs,
@@ -23,6 +24,7 @@ import {
   fetchSettings,
   fetchSiteContent,
 } from "@/lib/catalog-client";
+import { alternatesFor } from "@/lib/seo";
 import SiteFooter from "@/components/site-footer";
 import SiteHeader from "@/components/site-header";
 import "../globals.css";
@@ -143,6 +145,9 @@ export default async function RootLayout({
           location={location}
           brandName={config.brandName}
         />
+        {/* GA4 (T4, GA-OFF-01): renders nothing unless a valid measurement ID
+            is configured; the C8 privacy check gates turning it on. */}
+        <AnalyticsScripts gaMeasurementId={config.gaMeasurementId} />
       </body>
     </html>
   );
@@ -174,5 +179,13 @@ export async function generateMetadata({
   return {
     title,
     description,
+    // Canonical + hreflang (T4): absolute URLs from the canonical site URL.
+    alternates: alternatesFor(config, "", locale),
+    // Search Console verification (T4): meta tag only when a token is
+    // configured (GA-OFF-01: empty config renders nothing).
+    verification:
+      config.gscVerification !== null
+        ? { google: config.gscVerification }
+        : undefined,
   };
 }

@@ -1,4 +1,4 @@
--- 0001_init.sql — HAVN initial schema.
+-- 0001_init.sql — lamp initial schema.
 --
 -- Money is integer cents (HKD), never floats: price_cents is BIGINT cents.
 

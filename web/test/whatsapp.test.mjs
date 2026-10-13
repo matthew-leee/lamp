@@ -19,7 +19,7 @@ test("confirmed number -> wa.me link with encoded prefilled text", () => {
 });
 
 test("message is URL-encoded (spaces, newlines, reserved characters)", () => {
-  const message = "Hi HAVN, asking about lamp?\n\n你好 HAVN。";
+  const message = "Hi BRAND, asking about lamp?\n\n你好 BRAND。";
   const href = buildWhatsAppHref("85291234567", message);
   assert.ok(href);
   assert.ok(!href.includes(" "));

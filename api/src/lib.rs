@@ -1,4 +1,4 @@
-//! Shared helpers and HTTP handlers for the HAVN API.
+//! Shared helpers and HTTP handlers for the lamp API.
 //!
 //! The Axum server bootstrap lives in the binary target (`src/main.rs`);
 //! anything reusable (and unit-testable on its own) belongs here: request

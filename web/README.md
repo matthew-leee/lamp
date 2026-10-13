@@ -1,6 +1,6 @@
-# HAVN web (storefront)
+# lamp web (storefront)
 
-Next.js 15 App Router skeleton for the HAVN storefront: a bilingual
+Next.js 15 App Router skeleton for the storefront: a bilingual
 (繁體中文 + English) designer-homeware ecommerce flagship for Hong Kong.
 Front end only; the Rust API lives in `../api/`.
 
@@ -90,7 +90,8 @@ lives there; the Rust API reads `PORT`, `DATABASE_URL`, `CORS_ORIGIN`,
 - `NEXT_PUBLIC_BRAND_NAME` brand name (REQUIRED; no default — the brand is
   configuration, never a code literal). `NEXT_PUBLIC_BRAND_NAME_NATIVE`
   optional native-script form.
-- `NEXT_PUBLIC_SITE_URL` canonical public site URL (later: canonical, hreflang, sitemap).
+- `NEXT_PUBLIC_SITE_URL` canonical public site URL. REQUIRED from T4: canonical,
+  hreflang, sitemap, robots and JSON-LD absolute URLs derive from it.
 - `NEXT_PUBLIC_API_URL` base URL of the Rust API. REQUIRED at build: the
   catalogue, site copy and settings are fetched from it when pages are
   generated (see the data layer below).
@@ -185,6 +186,9 @@ verified electrical facts, live stock badge), placeholder art with the
 lights on/off toggle, WhatsApp enquiry (env-gated). D1: catalogue + site
 copy + settings moved to Postgres behind the API (white-label data layer);
 brand/currency/locales/env-knob configuration; the inline TS catalogue
-deleted. Not yet: admin console CRUD over the data (D2), GA/GSC wiring,
-SEO surface (hreflang, JSON-LD, sitemap; T4), cart/checkout and payment
-(M1 money path), `output: "standalone"` for the Docker deploy.
+deleted. T4: SEO surface (Product JSON-LD with price always and
+availability deliberately omitted, canonical + hreflang + x-default,
+sitemap, robots) + GA4/GSC env-gated OFF + bare-404 single-source CSS
+(Q3) + rename sweep. Not yet: admin console CRUD over the data (D2),
+cart/checkout and payment (M1 money path), `output: "standalone"` for the
+Docker deploy.

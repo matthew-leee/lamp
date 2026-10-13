@@ -1,5 +1,5 @@
 [package]
-name = "havn-api"
+name = "lamp-api"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,11 +7,11 @@ edition = "2021"
 # holds the Axum server. Splitting them keeps the helpers usable (and testable)
 # without dead-code warnings in a binary-only crate.
 [lib]
-name = "havn_api"
+name = "lamp_api"
 path = "src/lib.rs"
 
 [[bin]]
-name = "havn-api"
+name = "lamp-api"
 path = "src/main.rs"
 
 [dependencies]

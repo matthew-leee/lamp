@@ -75,14 +75,17 @@ export function useAvailability(): AvailabilityState {
 export interface AvailabilityProviderProps {
   children: ReactNode;
   /**
-   * Confirmation TTL for the client session, resolved on the SERVER
-   * (lib/config.ts availabilityTtlMs(); ENV-01: Next only inlines
-   * statically named public env accesses, so the browser cannot resolve the
-   * knob itself). Defaults to the module constant.
+   * Confirmation TTL for the client session, ms. REQUIRED PROP (ENV-01):
+   * Next inlines only statically named public env accesses into client
+   * bundles, so the browser cannot resolve the env knob itself — the SERVER
+   * resolves it (lib/config.ts availabilityTtlMs) and passes it down. A
+   * required prop makes the wiring a compile-time guarantee: a layout that
+   * forgets to pass it fails typecheck instead of silently defaulting.
    */
-  ttlMs?: number;
-  /** Route-fetch abort timeout, server-resolved (lib/config.ts fetchTimeoutMs()). */
-  timeoutMs?: number;
+  ttlMs: number;
+  /** Route-fetch abort timeout, ms. REQUIRED for the same reason (server
+   * resolves lib/config.ts fetchTimeoutMs, client never reads env). */
+  timeoutMs: number;
 }
 
 export default function AvailabilityProvider({

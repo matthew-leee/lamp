@@ -6,6 +6,35 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `web/` M2 T4 SEO surface: Product JSON-LD on every product page (name,
+  sku, brand, absolute offer URL, price as an integer-math string in the
+  configured currency; `availability` deliberately omitted — stock is live
+  fail-closed data and JSON-LD is baked at build, so an InStock claim would
+  be an unconfirmed stock statement in SSR HTML, which commitment 5b
+  forbids), canonical + hreflang + x-default links on home and product pages
+  (canonical self-referencing per locale; hreflang uses the htmlLang values
+  `en`/`zh-Hant-HK`), `app/sitemap.ts` (both locales x (home + 8 products) =
+  18 absolute URLs; `lastModified` omitted — nothing tracks content mtime),
+  `app/robots.ts` (allow all, disallow /api/, absolute sitemap URL). GA4 via
+  `next/script` + Search Console verification meta, both env/settings-gated
+  and OFF by default (GA-OFF-01; invalid GA ids resolve to OFF — shape
+  validation is a trust boundary for the script URL). `NEXT_PUBLIC_SITE_URL`
+  is now REQUIRED (canonical/hreflang/sitemap/robots/JSON-LD derive from it;
+  missing fails the build loudly). `lib/seo.ts` (absolute URLs, alternates,
+  JSON-LD builder) + `components/analytics.tsx`. Q3 resolved: the bare 404
+  shell imports `globals.css`, so the token stylesheet loads routeless — the
+  404's inline hex duplication is deleted and the component styles from
+  token classes (pinned by test: stylesheet link present, no hex in the 404
+  document). Availability provider's ttl/timeout props are REQUIRED
+  (compile-time wiring guarantee: the server resolves the env knobs, the
+  client never reads env). Rename sweep: `havn-web` -> `lamp-web`,
+  `havn-api` -> `lamp-api`, HAVN literals neutralized in source comments,
+  READMEs and the untracked PRD (NAME-01; historical CHANGELOG entries
+  stay). Tests: `test/seo.test.mjs` (unit) + `test/seo-routes.test.mjs`
+  (behavioral: JSON-LD shape, canonical/hreflang, 18-URL sitemap, robots
+  directives, GA/GSC off-by-default, 404 stylesheet) — 166 total.
+
+### Added
 - `api/` D1.2 read endpoints: GET /api/catalogue (active SKUs only, ordered
   by id; locale-keyed content, labelled reference price or null, numbered
   pieces, derived `units_in_drop` and `total_pieces` = COUNT(*), assembled in

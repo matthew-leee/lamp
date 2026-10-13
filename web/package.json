@@ -1,8 +1,8 @@
 {
-  "name": "havn-web",
+  "name": "lamp-web",
   "version": "0.1.0",
   "private": true,
-  "description": "HAVN storefront: bilingual (Traditional Chinese + English) designer-homeware ecommerce flagship.",
+  "description": "lamp storefront: bilingual (Traditional Chinese + English) designer-homeware ecommerce flagship.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

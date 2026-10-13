@@ -1,6 +1,6 @@
-//! HAVN API — Axum server.
+//! lamp API — Axum server.
 //!
-//! Config from the environment (ENV-01; see `havn_api::config`):
+//! Config from the environment (ENV-01; see `lamp_api::config`):
 //! - `DATABASE_URL` — optional at boot. Without it the server still serves
 //!   `/health`; the `/api/*` data endpoints return 503 with a clear JSON error.
 //! - `PORT` — listen port, default 8080.
@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 use anyhow::Context;
 use axum::{extract::State, http::header, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
-use havn_api::{
+use lamp_api::{
     catalogue, config, content,
     state::{self, AppState},
 };

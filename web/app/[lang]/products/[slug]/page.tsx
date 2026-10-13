@@ -57,6 +57,7 @@ import {
   resolveSiteConfig,
 } from "@/lib/config";
 import { altLocale, htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
+import { alternatesFor, productJsonLd } from "@/lib/seo";
 import { formatMoney } from "@/lib/money";
 import {
   artLabel,
@@ -199,6 +200,18 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 sm:px-10">
+      {/* Product JSON-LD (T4): name, sku, brand, absolute offer URL, price
+          (integer-math string) and currency. Availability is deliberately
+          omitted (lib/seo.ts: an unconfirmed stock claim in SSR HTML is
+          forbidden by commitment 5b). */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(
+            productJsonLd({ product, locale, config }),
+          ),
+        }}
+      />
       <p className={`pt-10 text-sm ${familyClass(locale, "sans")}`}>
         <Link
           href={`/${locale}`}
@@ -443,5 +456,7 @@ export async function generateMetadata({
       subject,
       lang,
     ),
+    // Canonical + hreflang (T4): absolute URLs from the canonical site URL.
+    alternates: alternatesFor(data.config, `products/${slug}`, lang),
   };
 }

@@ -72,12 +72,44 @@ function layered(
 }
 
 /**
+ * The canonical public site URL, REQUIRED from T4 (SEO surface: canonical,
+ * hreflang, sitemap, robots and JSON-LD absolute URLs all derive from it).
+ * Fail-loud: no canonical URL means the SEO routes cannot be generated.
+ */
+export function requiredSiteUrl(config: SiteConfig): string {
+  if (config.siteUrl === null) {
+    throw new Error(
+      "requiredSiteUrl: the canonical site URL is required (canonical, " +
+        "hreflang, sitemap, robots, JSON-LD). Set NEXT_PUBLIC_SITE_URL " +
+        "(or a site.url settings override), no trailing slash.",
+    );
+  }
+  return config.siteUrl;
+}
+
+/** GA4 measurement ID shape: G- followed by 4-12 alphanumerics. */
+const GA_ID_PATTERN = /^G-[A-Z0-9]{4,12}$/;
+
+/**
+ * A GA4 measurement ID is only usable when it matches the G-XXXX shape;
+ * anything else (a typo, a pasted secret, a stray string) is treated as OFF
+ * (GA-OFF-01) rather than embedded into a script URL (the value reaches a
+ * <script src> from settings, so shape validation is a trust boundary).
+ */
+export function validGaId(raw: string | null): string | null {
+  if (raw === null) return null;
+  const trimmed = raw.trim();
+  return GA_ID_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+/**
  * Resolve the full site config.
  *
  * Brand name is required (white-label test: swap the env values and another
  * company runs): missing brand fails loudly with an actionable message rather
  * than rendering a nameless site. Everything else has a safe default or an
- * explicit null meaning "absent by design".
+ * explicit null meaning "absent by design". The GA measurement ID is
+ * shape-validated: an invalid ID resolves to null (GA off), never a script URL.
  */
 export function resolveSiteConfig(overrides: SettingsOverrides): SiteConfig {
   const brandName = layered(
@@ -111,10 +143,8 @@ export function resolveSiteConfig(overrides: SettingsOverrides): SiteConfig {
       "NEXT_PUBLIC_WHATSAPP_NUMBER",
       KEYS.whatsappNumber,
     ),
-    gaMeasurementId: layered(
-      overrides,
-      "NEXT_PUBLIC_GA_MEASUREMENT_ID",
-      KEYS.gaMeasurementId,
+    gaMeasurementId: validGaId(
+      layered(overrides, "NEXT_PUBLIC_GA_MEASUREMENT_ID", KEYS.gaMeasurementId),
     ),
     gscVerification: layered(
       overrides,
