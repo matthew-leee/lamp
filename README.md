@@ -61,6 +61,15 @@ cd api && cargo fmt --check && cargo clippy --all-targets -- -D warnings && carg
 cd web && npm run build && npm run typecheck && npm run lint && npm run test
 ```
 
+## Admin console (D2, in progress)
+
+Admin auth is argon2id (PHC strings) against the `admin_users` table
+(migration `api/migrations/0004_admin.sql`). No admin is seeded — no secrets
+in the repo: the server upserts the initial admin at boot when
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` are both set. Sessions are stateless
+HMAC-SHA256-signed cookies; the signing key `SESSION_SECRET` is env-only and
+never enters the database, the `settings` table, or the admin console.
+
 ## Business documents
 
 `Vision.md` and `docs/designs/` are intentionally not committed: this repository is

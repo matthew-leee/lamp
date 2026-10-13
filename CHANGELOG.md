@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format follows
 ## Unreleased
 
 ### Added
+- `api/` D2a (start): admin auth schema + dependencies.
+  Migration `0004_admin.sql`: `admin_users` table (username `TEXT UNIQUE`
+  with cookie/log-safe charset CHECK `^[A-Za-z0-9_-]{1,64}$`, argon2id
+  PHC `password_hash`, `created_at`). Deliberately NO seed row — no secrets in
+  the repo: the server upserts the initial admin at boot from
+  `ADMIN_USERNAME`/`ADMIN_PASSWORD` when both are set. Sessions are stateless
+  HMAC-SHA256 cookies signed with `SESSION_SECRET` (env-only, never settings
+  or admin-editable): a token carries its own `{sub, exp}` + signature, so a
+  stolen cookie cannot be forged or extended, only replayed until expiry.
+  Dependencies: `argon2` 0.5, `hmac` 0.12, `sha2` 0.10. Gate green before the
+  change: fmt clean, clippy `-D warnings` clean, 31/31 tests.
+
+### Added
 - `web/` M2 T4 SEO surface: Product JSON-LD on every product page (name,
   sku, brand, absolute offer URL, price as an integer-math string in the
   configured currency; `availability` deliberately omitted — stock is live
