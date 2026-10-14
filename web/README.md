@@ -1,8 +1,9 @@
 # lamp web (storefront)
 
-Next.js 15 App Router skeleton for the storefront: a bilingual
-(繁體中文 + English) designer-homeware ecommerce flagship for Hong Kong.
-Front end only; the Rust API lives in `../api/`.
+Next.js 15 App Router skeleton for the storefront: a bilingual-content
+(繁體中文 + English) designer-homeware ecommerce flagship for Hong Kong, TWO
+language editions as whole locale routes — ONE language per page (see
+"Copy rules"). Front end only; the Rust API lives in `../api/`.
 
 Authoritative vision: `../Vision.md` (this repo root). Visual register:
 `../docs/designs/havn-opening-drop.md` ("Frontend Design Direction").
@@ -56,8 +57,10 @@ font cache lives in `.next/cache`.
 - Anything else (unknown locale, unknown subpath, `/`) returns HTTP 404 from
   `app/global-not-found.tsx` (Next 15 `experimental.globalNotFound`): the bare
   shell owns `<html lang="en">` (documented default, `lib/i18n.ts
-  defaultLocale`) and renders bilingual 404 content at equal weight with
-  `lang` on each passage. A locale-scoped catch-all was rejected because
+  defaultLocale`) and renders that ONE locale's 404 copy (company copy from
+  the database, `lang` on each passage; the language switcher below is the
+  one control that may name both locales). A locale-scoped catch-all was
+  rejected because
   `notFound()` thrown at request time escapes SSR in this no-root-layout
   setup and the recovered document loses its `lang` attribute.
 - `app/not-found.tsx` and `app/[lang]/not-found.tsx` remain as safety-net
@@ -81,8 +84,14 @@ font cache lives in `.next/cache`.
   Noto Sans TC (Chinese). Composition lives in `globals.css`
   (`font-display`, `font-sans`, `font-display-tc`, `font-sans-tc`).
 
-Copy rules: Traditional Chinese and English at equal weight from the first
-component (no translation toggle), no em-dashes in user-facing copy.
+Copy rules (I18N-01, founder decision 2026-10-14): SINGLE-LOCALE DISPLAY —
+every page renders ONLY the language of its locale (the visitor's choice),
+never the other one (no translation toggle; the language switcher is how the
+visitor chooses and is the ONE control allowed to name both locales). The
+old equal-weight paired display (every passage in both languages) is
+retired. Each rendered passage keeps its `lang` attribute (WCAG 3.1.2
+Language of Parts) and the script-aware font stack of the chosen language;
+copy is stored per locale in the database. No em-dashes in user-facing copy.
 
 ## Environment
 
@@ -155,7 +164,8 @@ resolution is override, then env default. Secrets are env-only.
   fetch timeout (`NEXT_PUBLIC_FETCH_TIMEOUT_MS`, default 10s).
 - `components/availability-context.tsx` + `components/stock-badge.tsx`: the
   provider wraps the locale layout and runs one shared session; badges show
-  `N left` / sold out / unconfirmed. Only a fresh confirmed count renders.
+  `N left` / sold out / unconfirmed in the CHOSEN locale only (single-locale
+  display). Only a fresh confirmed count renders.
 - `lib/not-found-data.ts` fail-soft 404 copy loader: company copy from
   `site_content` when fetchable, generic brand-free fallback otherwise — a
   404 must never become a 500.
@@ -179,8 +189,8 @@ resolution is override, then env default. Secrets are env-only.
 
 ## Live availability architecture (commitment 5b)
 
-SSR HTML never contains a stock number. Static pages render a bilingual
-"confirming availability" placeholder; the client provider fetches
+SSR HTML never contains a stock number. Static pages render the chosen
+locale's "confirming availability" placeholder; the client provider fetches
 `/api/availability` (which reads the Rust API live, no-store) and badges swap
 to a real count only on a fresh confirmation. A displayed count expires after
 60 seconds: the badge returns to confirming and reconfirms; if any refresh

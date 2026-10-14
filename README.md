@@ -37,8 +37,13 @@ the database or the admin console.
 
 ## Stack
 
-- **web/** — Next.js (App Router, TypeScript, Tailwind). Bilingual (繁體中文 / English)
-  first-class. Statically generated product pages with ISR.
+- **web/** — Next.js (App Router, TypeScript, Tailwind). Two language
+  editions (繁體中文 / English) as whole locale routes, ONE language per page
+  — the locale the visitor chose (I18N-01 single-locale display, founder
+  decision 2026-10-14: the old equal-weight paired rendering of every
+  passage in both languages is retired; the language switcher is the only
+  control that names both). Copy is stored per locale in the database.
+  Statically generated product pages with ISR.
 - **api/** — Rust (Axum, SQLx, PostgreSQL). Money is integer cents, never floats.
   Atomic stock reservations; verified gateway confirmation is the only payment
   authority; fulfilment at most once.
@@ -144,7 +149,9 @@ retry-later, never "wrong password" when nothing was judged — and the
 page maps slugs through a `Map`, so `?error=__proto__` renders nothing.
 The admin console
 is ENGLISH-ONLY by documented decision: it is operator tooling, and the
-bilingual contract is the storefront's customer contract, not the admin's.
+multilingual customer contract (I18N-01: one language per page across the
+two editions, founder decision 2026-10-14) is the storefront's customer
+contract, not the admin's.
 
 D2b task 3 adds the admin settings page (founder toggle spec; the seven
 COMPANY keys only — SCOPE-01): `brand.name`, `brand.name_native`,

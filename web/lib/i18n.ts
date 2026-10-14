@@ -5,10 +5,12 @@
  * "en,zh-HK"): the white-label test swaps env values, not code, so another
  * company runs their own language pair without touching this file.
  *
- * The storefront renders bilingual PAIRS (every passage appears in both
- * languages at equal weight), so the model is exactly two locales: parsing
- * validates that and fails loudly otherwise. The first locale is the default
- * (used by the bare 404 shell, which cannot know the visitor's locale).
+ * The storefront serves exactly two language editions, ONE first-class
+ * language per page (I18N-01 as re-decided by the founder 2026-10-14: every
+ * passage renders the chosen locale's text only), so the model is exactly
+ * two locales: parsing validates that and fails loudly otherwise. The first
+ * locale is the default (used by the bare 404 shell, which cannot know the
+ * visitor's locale).
  *
  * Language metadata (BCP-47 tags for <html lang>, endonyms for the language
  * switcher) is locale metadata, not company data: it stays in code with a
@@ -40,7 +42,7 @@ export function parseLocales(raw: string | undefined): [string, string] {
   if (parts.length !== 2) {
     throw new Error(
       "parseLocales: NEXT_PUBLIC_LOCALES must name exactly two locales " +
-        `(the storefront renders one bilingual pair); got ${parts.length} ` +
+        `(the storefront serves two language editions); got ${parts.length} ` +
         `(${parts.join(", ") || "empty"}).`,
     );
   }
@@ -97,7 +99,7 @@ export const languageNames: Record<Locale, string> = {
  */
 export const defaultLocale: Locale = locales[0];
 
-/** The other locale of the bilingual pair (paired copy carries both). */
+/** The other configured locale (language switcher and routing helpers). */
 export function altLocale(lang: Locale): Locale {
   return lang === locales[0] ? locales[1] : locales[0];
 }

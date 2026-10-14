@@ -5,19 +5,23 @@
   and NEXT_PUBLIC_BRAND_NAME set to the fixture brand (documented in
   web/README.md and test/fixtures/seed.mjs).
 
-  Contract asserted (Vision.md DROP-01, TRUST-01, TRUST-02, I18N-01 and
-  commitments 5b / 7):
+  Contract asserted (Vision.md DROP-01, TRUST-01, TRUST-02, I18N-01 as
+  re-decided by the founder 2026-10-14, and commitments 5b / 7):
+  - SINGLE-LOCALE DISPLAY: every passage renders ONLY the chosen locale's
+    text (one passage per key, lang attribute correct) and the ALT locale's
+    approved copy is ABSENT from the rendered HTML (the key regression: the
+    old paired-equal-weight display is retired and must never return).
   - ALL 8 slugs x both locales (16 pages) get the core trust assertions:
     exact approved copy from the seed fixture (company copy lives in the
     database since D1; the fixture is the independent pin) is rendered; the
-    independent-seller disclosure appears at least TWICE per language (trust
-    block + footer); the warranty block region contains the exact approved
-    pending copy and NO other sentence; labelled reference price carries its
-    rendered amounts, source and checked date (or verification pending);
-    stock badges show the "Confirming availability" placeholder and NO
-    stock number in the SSR HTML (commitment 5b); no unconditional "in stock"
-    claim anywhere (review finding 2); no delivery duration in either
-    language (commitment 7); no em-dashes.
+    independent-seller disclosure appears at least TWICE in the chosen
+    language (trust block + footer); the warranty block region contains the
+    exact approved pending copy and NO other sentence; labelled reference
+    price carries its rendered amounts, source and checked date (or
+    verification pending); stock badges show the "Confirming availability"
+    placeholder and NO stock number in the SSR HTML (commitment 5b); no
+    unconditional "in stock" claim anywhere (review finding 2); no delivery
+    duration in either language (commitment 7); no em-dashes.
   - every rendered HK$ amount is whitelisted per page (price plus, where
     verified, the labelled reference range): a fabricated comparison price
     fails the set equality. The PH 1/1 Piano page must show exactly
@@ -39,10 +43,11 @@
   client-side only.
 
   Deliberate-mutation note (tight by construction): deleting the trust-block
-  disclosure div makes the "disclosure at least twice per language" count drop
-  to 1 (footer only) and fail; the warranty region is compared for exact
-  equality; currency amounts are compared as an exact set. Assertions are
-  written so those mutations cannot pass by accident.
+  disclosure div makes the "disclosure at least twice" count drop to 1
+  (footer only) and fail; the warranty region is compared for exact
+  equality; currency amounts are compared as an exact set; and re-pairing
+  any passage with its ALT-language twin fails the ABSENCE assertions.
+  Assertions are written so those mutations cannot pass by accident.
 */
 
 import { test, before, after } from "node:test";
@@ -55,6 +60,7 @@ import * as copy from "../lib/ui-copy.ts";
 import {
   BRAND,
   CATALOGUE,
+  CURRENCY,
   SITE_CONTENT,
   TOTAL_PIECES,
   fixtureDropNumbering,
@@ -201,6 +207,110 @@ function count(haystack, needle) {
   return haystack.split(needle).length - 1;
 }
 
+/** RegExp-escape a literal string. */
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/* ---------------------------------------------------------------- */
+/* SINGLE-LOCALE ABSENCE SETS (I18N-01, founder 2026-10-14): every    */
+/* approved ALT-locale string must be ABSENT from the chosen locale's */
+/* rendered HTML. The language switcher endonyms (languageNames:       */
+/* "English" / "繁體中文") are the ONE allowed both-locales control and */
+/* are deliberately NOT in these sets.                                */
+/* ---------------------------------------------------------------- */
+
+/** The other locale of the default pair (fixture pages are en / zh-HK). */
+function altOf(locale) {
+  return locale === "en" ? "zh-HK" : "en";
+}
+
+/** Chrome labels present on every storefront page (chosen locale only). */
+const CHROME_LABEL_KEYS = [
+  "navMainLabel",
+  "navHome",
+  "languageLabel",
+  "priceLabel",
+  "disclosureLabel",
+  "trustStripLabel",
+  "warrantyLabel",
+  "referenceLabel",
+  "referenceSourceLabel",
+  "electricalLabel",
+  "heritageLabel",
+  "enquiryButtonLabel",
+  "lightsToggleLabel",
+  "artPlaceholderNote",
+  "stockUnconfirmed",
+];
+
+/** Every approved ALT-locale chrome label (absence set). */
+function altChrome(locale) {
+  return CHROME_LABEL_KEYS.map((key) => copy[key][altOf(locale)]);
+}
+
+/** Every approved ALT-locale string on the homepage (absence set). */
+function altHomeCopy(locale) {
+  const alt = altOf(locale);
+  return [
+    ...[
+      "meta.home.title",
+      "meta.home.description",
+      "hero.eyebrow",
+      "hero.lead",
+      "hero.leadPaired",
+      "drop.framing",
+      "drop.piecesHeading",
+      "enquiry.intro",
+      "enquiry.dropSubject",
+      "footer.location",
+    ].map((key) => siteContent(key, alt)),
+    APPROVED.disclosure[alt],
+    // Product tiles: every ALT-locale display name and drop-numbering run
+    // must be absent from the chosen-locale homepage too (review gap: the
+    // tile copy was outside the old absence set — a reintroduced dual tile
+    // would have escaped).
+    ...CATALOGUE.map((product) => fixtureProductDisplay(product, alt)),
+    ...CATALOGUE.map((product) =>
+      fixtureDropNumbering(product.pieces, product.pieces.length, alt),
+    ),
+    ...altChrome(locale),
+  ];
+}
+
+/** Every approved ALT-locale string on one product page (absence set). */
+function altProductCopy(locale, product) {
+  const alt = altOf(locale);
+  const strings = [
+    APPROVED.disclosure[alt],
+    APPROVED.warrantyPending[alt],
+    APPROVED.referencePending[alt],
+    product.electrical[alt],
+    product.heritage[alt],
+    fixtureProductDisplay(product, alt),
+    fixtureDropNumbering(product.pieces, TOTAL_PIECES, alt),
+    ...altChrome(locale),
+  ];
+  if (product.referencePrice !== null) {
+    strings.push(
+      fixtureReferenceRange(product.referencePrice, CURRENCY, alt),
+      fixtureReferenceChecked(product.referencePrice, alt),
+    );
+  }
+  return strings;
+}
+
+/** Assert `strings` are all absent from `body` (the single-locale rule). */
+function assertAltAbsent(body, strings, page) {
+  for (const s of strings) {
+    if (s === "") continue;
+    assert.ok(
+      !body.includes(s),
+      `${page} must NOT render the ALT locale's copy: "${s.slice(0, 60)}"`,
+    );
+  }
+}
+
 /** Tag-stripped, whitespace-normalised text of an HTML fragment. */
 function textOf(fragment) {
   return fragment.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -292,7 +402,6 @@ const inventedTermPattern =
 /* ---------------------------------------------------------------- */
 
 function assertCoreProductPage({ html, product, locale }) {
-  const alt = locale === "en" ? "zh-HK" : "en";
   const docLang = locale === "en" ? "en" : "zh-Hant-HK";
   const name = fixtureProductDisplay(product, locale);
   const body = visible(html);
@@ -336,76 +445,71 @@ function assertCoreProductPage({ html, product, locale }) {
     "rendered currency amounts must be exactly the whitelisted set",
   );
 
-  // Drop numbering (DROP-01), both languages, exact approved strings.
+  // Drop numbering (DROP-01), the chosen language only, exact approved
+  // string; the alt-language numbering never renders.
   const piecesLocale = fixtureDropNumbering(product.pieces, TOTAL_PIECES, locale);
-  const piecesAlt = fixtureDropNumbering(product.pieces, TOTAL_PIECES, alt);
   assert.ok(body.includes(piecesLocale), `missing "${piecesLocale}"`);
-  assert.ok(body.includes(piecesAlt), `missing "${piecesAlt}"`);
 
-  // (a) Independent-seller disclosure (TRUST-01), exact approved strings, at
-  // least TWICE per language: trust block + footer.
-  for (const [langKey, passage] of [
-    ["en", APPROVED.disclosure.en],
-    ["zh-HK", APPROVED.disclosure["zh-HK"]],
-  ]) {
-    const seen = count(body, passage);
-    assert.ok(
-      seen >= 2,
-      `disclosure (${langKey}) must appear at least twice (trust block + footer), found ${seen}`,
-    );
-  }
+  // (a) Independent-seller disclosure (TRUST-01), exact approved string, at
+  // least TWICE in the chosen language: trust block + footer.
+  const seen = count(body, APPROVED.disclosure[locale]);
+  assert.ok(
+    seen >= 2,
+    `disclosure must appear at least twice (trust block + footer), found ${seen}`,
+  );
   assert.ok(body.includes(copy.disclosureLabel[locale]));
-  assert.ok(body.includes(copy.disclosureLabel[alt]));
+  // Language of parts (WCAG 3.1.2): the passage carries its lang attribute.
+  assert.match(
+    body,
+    new RegExp(
+      `<p[^>]*lang="${docLang}"[^>]*>\\s*${escapeRegExp(APPROVED.disclosure[locale])}`,
+    ),
+  );
 
   // (b) Warranty: exact approved pending copy and NO other sentence in the
-  // warranty block region (tight region comparison).
-  const warrantyRegion = enclosingDiv(body, APPROVED.warrantyPending.en);
+  // warranty block region (tight region comparison, chosen language only).
+  const warrantyRegion = enclosingDiv(body, APPROVED.warrantyPending[locale]);
   assert.equal(
     textOf(warrantyRegion),
-    `${copy.warrantyLabel[locale]} / ${copy.warrantyLabel[alt]} ` +
-      `${APPROVED.warrantyPending[locale]} ${APPROVED.warrantyPending[alt]}`,
+    `${copy.warrantyLabel[locale]} ${APPROVED.warrantyPending[locale]}`,
     "the warranty block must contain exactly the approved label and pending copy",
   );
   assert.doesNotMatch(body, inventedTermPattern);
 
   // (c) Labelled reference price (TRUST-02): rendered amounts, source and
-  // checked date, or the exact pending copy and never a fabricated figure.
+  // checked date in the chosen language, or the exact pending copy and never
+  // a fabricated figure.
   assert.ok(body.includes(copy.referenceLabel[locale]));
-  assert.ok(body.includes(copy.referenceLabel[alt]));
   const reference = product.referencePrice;
   if (reference === null) {
     assert.ok(
-      body.includes(APPROVED.referencePending.en),
-      "missing English pending copy",
-    );
-    assert.ok(
-      body.includes(APPROVED.referencePending["zh-HK"]),
-      "missing Chinese pending copy",
+      body.includes(APPROVED.referencePending[locale]),
+      "missing chosen-locale pending copy",
     );
     assert.doesNotMatch(body, /MyConcept/);
     assert.doesNotMatch(body, /checked \d{4}-\d{2}-\d{2}/);
     assert.doesNotMatch(body, /查核日期\s*\d{4}-\d{2}-\d{2}/);
   } else {
-    const rangeLocale = fixtureReferenceRange(reference, "HKD", locale);
-    const rangeAlt = fixtureReferenceRange(reference, "HKD", alt);
+    const rangeLocale = fixtureReferenceRange(reference, CURRENCY, locale);
     const checkedLocale = fixtureReferenceChecked(reference, locale);
-    const checkedAlt = fixtureReferenceChecked(reference, alt);
     assert.ok(body.includes(rangeLocale), `missing "${rangeLocale}"`);
-    assert.ok(body.includes(rangeAlt), `missing "${rangeAlt}"`);
     assert.ok(body.includes(checkedLocale), `missing "${checkedLocale}"`);
-    assert.ok(body.includes(checkedAlt), `missing "${checkedAlt}"`);
     assert.ok(body.includes(reference.sourceName), "missing reference source");
+    // Language of parts: the English source name keeps its own lang attribute
+    // inside the chosen-language passage (WCAG 3.1.2).
+    assert.match(
+      body,
+      new RegExp(
+        `<a[^>]*lang="en"[^>]*>${escapeRegExp(reference.sourceName)}</a>`,
+      ),
+    );
   }
 
-  // (d) Availability (commitment 5b): the SSR HTML shows the confirming
-  // placeholder and NEVER a stock number.
+  // (d) Availability (commitment 5b): the SSR HTML shows the CHOSEN locale's
+  // confirming placeholder and NEVER a stock number.
   assert.ok(
-    body.includes(copy.stockUnconfirmed.en),
-    "missing 'Confirming availability' placeholder",
-  );
-  assert.ok(
-    body.includes(copy.stockUnconfirmed["zh-HK"]),
-    "missing Chinese confirming placeholder",
+    body.includes(copy.stockUnconfirmed[locale]),
+    "missing the chosen locale's confirming placeholder",
   );
   for (const pattern of stockNumberPatterns) {
     assert.doesNotMatch(body, pattern);
@@ -422,22 +526,44 @@ function assertCoreProductPage({ html, product, locale }) {
     assert.doesNotMatch(body, pattern);
   }
 
-  // (e) Electrical and heritage copy from the catalogue, exact strings.
+  // (e) Electrical and heritage copy from the catalogue, exact strings,
+  // chosen language only.
   assert.ok(body.includes(product.electrical[locale]));
-  assert.ok(body.includes(product.electrical[alt]));
   assert.ok(body.includes(copy.electricalLabel[locale]));
   assert.ok(body.includes(copy.heritageLabel[locale]));
   assert.ok(body.includes(product.heritage[locale]));
+  // Language of parts on the catalogue passages.
+  assert.match(
+    body,
+    new RegExp(
+      `<p[^>]*lang="${docLang}"[^>]*>\\s*${escapeRegExp(product.electrical[locale])}`,
+    ),
+  );
 
-  // Other approved chrome copy, exact strings.
+  // Other approved chrome copy, exact strings, chosen language only.
   assert.ok(body.includes(copy.backToDrop[locale]));
-  assert.ok(body.includes(copy.backToDrop[alt]));
   assert.ok(body.includes(copy.priceLabel[locale]));
-  assert.ok(body.includes(copy.priceLabel[alt]));
 
-  // Signature interaction: the only client-side control on the page.
+  // One home link label in the chosen locale (the nav renders the chosen
+  // language only).
+  assert.ok(
+    body.includes(`<span lang="${docLang}">${copy.navHome[locale]}</span>`),
+    "home link label must render in the chosen locale",
+  );
+
+  // THE KEY REGRESSION (founder 2026-10-14): the ALT locale's approved copy
+  // must be ABSENT — no passage renders the other language.
+  assertAltAbsent(body, altProductCopy(locale, product), `/${locale}/products/${product.slug}`);
+
+  // Signature interaction: the only client-side control on the page, its
+  // accessible name in the chosen language only (one identifiable language).
   assert.match(body, /<button[^>]*aria-pressed="(true|false)"/);
-  assert.match(body, /<button[^>]*aria-label="[^"]*Lights[^"]*燈[^"]*"/);
+  assert.match(
+    body,
+    new RegExp(
+      `<button[^>]*aria-label="${escapeRegExp(copy.lightsToggleLabel[locale])}"`,
+    ),
+  );
 
   // WhatsApp entry renders nothing without a confirmed number.
   assert.doesNotMatch(body, /wa\.me/);
@@ -478,10 +604,15 @@ for (const locale of ["en", "zh-HK"]) {
       const body = visible(html);
       const amounts = [...new Set(body.match(/HK\$[\d,]+(?:\.\d{2})?/g) ?? [])];
       assert.deepEqual(amounts, ["HK$10,795"]);
-      assert.ok(body.includes(APPROVED.referencePending.en));
-      assert.ok(body.includes(APPROVED.referencePending["zh-HK"]));
+      assert.ok(body.includes(APPROVED.referencePending[locale]));
       assert.doesNotMatch(body, /MyConcept/);
       assert.ok(!body.includes("2026-10-12"), "fabricated check date in body");
+      // Single-locale: the alt language's pending copy never renders.
+      assertAltAbsent(
+        body,
+        [APPROVED.referencePending[altOf(locale)]],
+        `/${locale}/products/ph-1-1-piano-table-limited`,
+      );
     }));
 
   test(`/products/unknown-slug (${locale}): 404 from the global shell`, () =>
@@ -500,7 +631,6 @@ for (const locale of ["en", "zh-HK"]) {
 for (const locale of ["en", "zh-HK"]) {
   test(`homepage (${locale}): the 8 pieces, pinned trust copy, neutral metadata`, () =>
     check(async () => {
-      const alt = locale === "en" ? "zh-HK" : "en";
       const docLang = locale === "en" ? "en" : "zh-Hant-HK";
       const { status, html } = await get(`/${locale}`);
       assert.equal(status, 200);
@@ -533,43 +663,57 @@ for (const locale of ["en", "zh-HK"]) {
       ].sort();
       assert.deepEqual(amounts, expectedPrices);
 
-      // Hero lead, exact approved strings (review finding 2: the drop-level
-      // "whole drop physically in Hong Kong" fact lives here only).
+      // Hero copy, exact approved strings in the CHOSEN language: eyebrow,
+      // THE single hero lead (the old second lead passage was the ALT-locale
+      // "paired lead" — under single-locale display it would duplicate the
+      // sentence in the same language, so it is NOT rendered; pinned below)
+      // and the drop framing, each with its lang attribute (WCAG 3.1.2).
+      assert.ok(body.includes(siteContent("hero.eyebrow", locale)), "missing hero eyebrow");
       assert.ok(body.includes(siteContent("hero.lead", locale)), "missing hero lead");
       assert.ok(
-        body.includes(siteContent("hero.leadPaired", alt)),
-        "missing paired lead",
+        !body.includes(siteContent("hero.leadPaired", locale)),
+        "the paired-lead variant must NOT render (single hero lead)",
       );
       assert.ok(
         body.includes(siteContent("drop.framing", locale)),
         "missing drop framing",
       );
-      assert.ok(body.includes(siteContent("drop.framing", alt)));
-
-      // Collection heading pair, both languages (I18N-01), from site content.
-      assert.ok(body.includes(siteContent("drop.piecesHeading", locale)));
-      assert.ok(
-        body.includes(siteContent("drop.piecesHeading", alt)),
-        "missing alt collection heading",
+      assert.match(
+        body,
+        new RegExp(
+          `<h1[^>]*lang="${docLang}"[^>]*>\\s*${escapeRegExp(siteContent("hero.lead", locale))}`,
+        ),
       );
 
-      // Trust strip + footer: disclosure at least twice per language.
-      for (const passage of [APPROVED.disclosure.en, APPROVED.disclosure["zh-HK"]]) {
-        assert.ok(
-          count(body, passage) >= 2,
-          "disclosure must appear at least twice (trust strip + footer)",
-        );
-      }
+      // One collection heading in the chosen language (I18N-01).
+      assert.ok(body.includes(siteContent("drop.piecesHeading", locale)));
+
+      // Trust strip + footer: disclosure at least twice in the chosen
+      // language (trust strip + footer).
+      assert.ok(
+        count(body, APPROVED.disclosure[locale]) >= 2,
+        "disclosure must appear at least twice (trust strip + footer)",
+      );
       assert.ok(body.includes(copy.trustStripLabel[locale]));
       assert.ok(body.includes(siteContent("enquiry.intro", locale)));
-      assert.ok(body.includes(siteContent("enquiry.intro", alt)));
 
       // Footer location from site content with the brand.
       assert.ok(body.includes(`${BRAND} · ${siteContent("footer.location", locale)}`));
 
-      // Unconfirmed stock everywhere, no numbers (commitment 5b).
-      assert.ok(body.includes(copy.stockUnconfirmed.en));
-      assert.ok(body.includes(copy.stockUnconfirmed["zh-HK"]));
+      // One home link label in the chosen locale (the nav renders the
+      // chosen language only).
+      assert.ok(
+        body.includes(`<span lang="${docLang}">${copy.navHome[locale]}</span>`),
+        "home link label must render in the chosen locale",
+      );
+
+      // THE KEY REGRESSION (founder 2026-10-14): the ALT locale's approved
+      // copy must be ABSENT from the whole homepage.
+      assertAltAbsent(body, altHomeCopy(locale), `/${locale}`);
+
+      // Unconfirmed stock everywhere, no numbers (commitment 5b), the
+      // chosen locale's placeholder only.
+      assert.ok(body.includes(copy.stockUnconfirmed[locale]));
       for (const pattern of stockNumberPatterns) {
         assert.doesNotMatch(body, pattern);
       }

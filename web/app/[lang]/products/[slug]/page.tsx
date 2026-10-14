@@ -10,11 +10,18 @@
  * notFound() thrown at request time escapes SSR in this no-root-layout setup
  * and recovers without its lang attribute.
  *
- * Data (DATA-02/CONFIG-01): the SKU, its bilingual copy, art configuration
+ * Data (DATA-02/CONFIG-01): the SKU, its locale-keyed copy (per-locale
+ * columns in Postgres), art configuration
  * and labelled reference price come from the fetched catalogue (Postgres via
  * the Rust API); trust copy (disclosure, warranty pending, reference
  * pending) is company copy from the site_content table rendered with the
  * resolved brand; the price renders in the configured currency.
+ *
+ * Copy rules (I18N-01, founder decision 2026-10-14): SINGLE-LOCALE DISPLAY.
+ * Every passage renders ONLY the chosen locale's text, one passage per key,
+ * each with its own lang attribute (WCAG 3.1.2 Language of Parts) and the
+ * script-aware type family for that locale. The old paired-equal-weight
+ * display (every passage in both languages) is RETIRED.
  *
  * Above the fold: the hero placeholder art with the single signature
  * interaction (lights on / lights off, the only client JS on this page) and
@@ -38,7 +45,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import BilingualPair, { familyClass } from "@/components/bilingual";
+import { familyClass, isCjkLocale } from "@/components/bilingual";
 import LightsToggle from "@/components/lights-toggle";
 import StockBadge from "@/components/stock-badge";
 import WhatsAppButton from "@/components/whatsapp-button";
@@ -56,7 +63,7 @@ import {
   requireApiUrl,
   resolveSiteConfig,
 } from "@/lib/config";
-import { altLocale, htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
+import { htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
 import { alternatesFor, jsonLdScript, productJsonLd } from "@/lib/seo";
 import { formatMoney } from "@/lib/money";
 import {
@@ -76,7 +83,6 @@ import {
   referenceRange,
   referenceSourceLabel,
   warrantyLabel,
-  type Bilingual,
 } from "@/lib/ui-copy";
 
 // Unknown slugs 404 from the global shell without executing this page
@@ -110,27 +116,6 @@ function productCopy(
   return value;
 }
 
-/** Build a bilingual pair from per-locale product copy. */
-function productPair(
-  product: CatalogueProduct,
-  field: "heritage" | "electrical",
-): Bilingual {
-  const out: Bilingual = {};
-  for (const locale of locales) {
-    out[locale] = productCopy(product, field, locale);
-  }
-  return out;
-}
-
-/** Bilingual display name of the SKU. */
-function namePair(product: CatalogueProduct): Bilingual {
-  const out: Bilingual = {};
-  for (const locale of locales) {
-    out[locale] = productDisplay(product, locale);
-  }
-  return out;
-}
-
 /**
  * Page data: catalogue row + content + resolved config, fetched at build
  * and at every on-demand revalidation. Returns null for an unknown slug.
@@ -154,7 +139,6 @@ export default async function ProductPage({ params }: ProductPageProps) {
     notFound();
   }
   const locale: Locale = lang;
-  const alt = altLocale(locale);
 
   const data = await loadProductData(slug);
   // Unknown slug: at BUILD this is impossible (generateStaticParams emits
@@ -173,30 +157,23 @@ export default async function ProductPage({ params }: ProductPageProps) {
     );
   }
   const { catalogue, content, config, product } = data;
-  const name = namePair(product);
+  const name = productDisplay(product, locale);
   const reference = product.referencePrice;
   const art = product.art;
 
-  // Trust copy from site content, rendered with the brand (DATA-02).
-  const disclosurePair: Bilingual = {};
-  const warrantyPair: Bilingual = {};
-  const referencePendingPair: Bilingual = {};
-  for (const l of locales) {
-    disclosurePair[l] = renderTemplate(
-      contentValue(content, "trust.disclosure", l),
-      { brand: config.brandName },
-    );
-    warrantyPair[l] = renderTemplate(
-      contentValue(content, "warranty.pending", l),
-      { brand: config.brandName },
-    );
-    referencePendingPair[l] = contentValue(content, "reference.pending", l);
-  }
+  // Trust copy from site content, rendered with the brand in the CHOSEN
+  // locale only (DATA-02; single-locale display, founder 2026-10-14).
+  const disclosureText = renderTemplate(
+    contentValue(content, "trust.disclosure", locale),
+    { brand: config.brandName },
+  );
+  const warrantyText = renderTemplate(
+    contentValue(content, "warranty.pending", locale),
+    { brand: config.brandName },
+  );
+  const referencePendingText = contentValue(content, "reference.pending", locale);
 
-  const piecesPair: Bilingual = {};
-  for (const l of locales) {
-    piecesPair[l] = dropNumbering(product.pieces, catalogue.totalPieces, l);
-  }
+  const piecesText = dropNumbering(product.pieces, catalogue.totalPieces, locale);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 sm:px-10">
@@ -221,10 +198,6 @@ export default async function ProductPage({ params }: ProductPageProps) {
           className="text-ink-soft underline underline-offset-4 transition-colors duration-200 hover:text-charcoal"
         >
           <span lang={htmlLang[locale]}>{pick(backToDrop, locale)}</span>
-          <span aria-hidden="true" className="px-2">
-            /
-          </span>
-          <span lang={htmlLang[alt]}>{pick(backToDrop, alt)}</span>
         </Link>
       </p>
 
@@ -235,41 +208,33 @@ export default async function ProductPage({ params }: ProductPageProps) {
             hue={art.hue}
             variant={art.variant}
             label={artLabel(name, locale)}
+            lang={locale}
           />
         </div>
 
         <div>
           <p
             className={`text-xs tracking-[0.18em] text-ink-soft ${familyClass(locale, "sans")}`}
+            lang={htmlLang[locale]}
           >
-            <span lang={htmlLang[locale]}>{piecesPair[locale]}</span>
-            <span aria-hidden="true" className="px-1.5">
-              /
-            </span>
-            <span lang={htmlLang[alt]}>{piecesPair[alt]}</span>
+            {piecesText}
           </p>
 
-          <h1 className="mt-3 text-3xl leading-snug text-charcoal">
-            <span lang={htmlLang[locale]} className={familyClass(locale, "display")}>
-              {name[locale]}
-            </span>
-            <span aria-hidden="true" className="px-2 text-linen">
-              /
-            </span>
-            <span lang={htmlLang[alt]} className={familyClass(alt, "display")}>
-              {name[alt]}
-            </span>
+          <h1
+            className={`mt-3 text-3xl leading-snug text-charcoal ${familyClass(locale, "display")}`}
+            lang={htmlLang[locale]}
+          >
+            {name}
           </h1>
 
           <p className="mt-6 text-5xl tracking-tight text-charcoal font-sans">
             {formatMoney(product.priceCents, config.currency)}
           </p>
-          <p className={`mt-1 text-xs tracking-[0.18em] text-ink-soft ${familyClass(locale, "sans")}`}>
-            <span lang={htmlLang[locale]}>{pick(priceLabel, locale)}</span>
-            <span aria-hidden="true" className="px-1.5">
-              /
-            </span>
-            <span lang={htmlLang[alt]}>{pick(priceLabel, alt)}</span>
+          <p
+            className={`mt-1 text-xs tracking-[0.18em] text-ink-soft ${familyClass(locale, "sans")}`}
+            lang={htmlLang[locale]}
+          >
+            {pick(priceLabel, locale)}
           </p>
 
           <div className="mt-4">
@@ -280,57 +245,58 @@ export default async function ProductPage({ params }: ProductPageProps) {
             />
           </div>
 
-          {/* Trust block (TRUST-01, TRUST-02): labelled facts, both languages. */}
+          {/* Trust block (TRUST-01, TRUST-02): labelled facts in the chosen
+              language (single-locale display, founder 2026-10-14). */}
           <dl className="mt-10 space-y-8 border-t border-sand pt-8">
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
-                <span lang={htmlLang[locale]}>{pick(disclosureLabel, locale)}</span>
-                <span aria-hidden="true" className="px-1.5">
-                  /
-                </span>
-                <span lang={htmlLang[alt]}>{pick(disclosureLabel, alt)}</span>
+              <dt
+                className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}
+                lang={htmlLang[locale]}
+              >
+                {pick(disclosureLabel, locale)}
               </dt>
               <dd className="mt-2">
-                <BilingualPair
-                  text={disclosurePair}
-                  lang={locale}
-                  className="text-sm leading-relaxed text-charcoal"
-                />
+                <p
+                  lang={htmlLang[locale]}
+                  className={`text-sm leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
+                >
+                  {disclosureText}
+                </p>
               </dd>
             </div>
 
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
-                <span lang={htmlLang[locale]}>{pick(warrantyLabel, locale)}</span>
-                <span aria-hidden="true" className="px-1.5">
-                  /
-                </span>
-                <span lang={htmlLang[alt]}>{pick(warrantyLabel, alt)}</span>
+              <dt
+                className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}
+                lang={htmlLang[locale]}
+              >
+                {pick(warrantyLabel, locale)}
               </dt>
               <dd className="mt-2">
-                <BilingualPair
-                  text={warrantyPair}
-                  lang={locale}
-                  className="text-sm leading-relaxed text-charcoal"
-                />
+                <p
+                  lang={htmlLang[locale]}
+                  className={`text-sm leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
+                >
+                  {warrantyText}
+                </p>
               </dd>
             </div>
 
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
-                <span lang={htmlLang[locale]}>{pick(referenceLabel, locale)}</span>
-                <span aria-hidden="true" className="px-1.5">
-                  /
-                </span>
-                <span lang={htmlLang[alt]}>{pick(referenceLabel, alt)}</span>
+              <dt
+                className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}
+                lang={htmlLang[locale]}
+              >
+                {pick(referenceLabel, locale)}
               </dt>
               <dd className="mt-2">
                 {reference === null ? (
-                  <BilingualPair
-                    text={referencePendingPair}
-                    lang={locale}
-                    className="text-sm leading-relaxed text-charcoal"
-                  />
+                  <p
+                    lang={htmlLang[locale]}
+                    className={`text-sm leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
+                  >
+                    {referencePendingText}
+                  </p>
                 ) : (
                   <ReferencePriceBlock
                     reference={reference}
@@ -347,19 +313,19 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 it. Commitment 7 is kept by saying nothing about delivery. */}
 
             <div>
-              <dt className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}>
-                <span lang={htmlLang[locale]}>{pick(electricalLabel, locale)}</span>
-                <span aria-hidden="true" className="px-1.5">
-                  /
-                </span>
-                <span lang={htmlLang[alt]}>{pick(electricalLabel, alt)}</span>
+              <dt
+                className={`text-sm text-ink-soft ${familyClass(locale, "sans")}`}
+                lang={htmlLang[locale]}
+              >
+                {pick(electricalLabel, locale)}
               </dt>
               <dd className="mt-2">
-                <BilingualPair
-                  text={productPair(product, "electrical")}
-                  lang={locale}
-                  className="text-sm leading-relaxed text-charcoal"
-                />
+                <p
+                  lang={htmlLang[locale]}
+                  className={`text-sm leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
+                >
+                  {productCopy(product, "electrical", locale)}
+                </p>
               </dd>
             </div>
           </dl>
@@ -367,7 +333,13 @@ export default async function ProductPage({ params }: ProductPageProps) {
           <div className="mt-10">
             <WhatsAppButton
               number={config.whatsappNumber}
-              message={buildEnquiryMessage(content, config.brandName, name)}
+              lang={locale}
+              message={buildEnquiryMessage(
+                content,
+                config.brandName,
+                name,
+                locale,
+              )}
             />
           </div>
         </div>
@@ -375,28 +347,28 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
       {/* Below the fold: why the object matters. */}
       <section className="mt-24 border-t border-sand pt-12">
-        <p className={`text-sm tracking-[0.22em] text-ink-soft ${familyClass(locale, "sans")}`}>
-          <span lang={htmlLang[locale]}>{pick(heritageLabel, locale)}</span>
-          <span aria-hidden="true" className="px-1.5">
-            /
-          </span>
-          <span lang={htmlLang[alt]}>{pick(heritageLabel, alt)}</span>
+        <p
+          className={`text-sm tracking-[0.22em] text-ink-soft ${familyClass(locale, "sans")}`}
+          lang={htmlLang[locale]}
+        >
+          {pick(heritageLabel, locale)}
         </p>
-        <BilingualPair
-          text={productPair(product, "heritage")}
-          lang={locale}
-          family="display"
-          className="mt-6 max-w-3xl text-2xl leading-relaxed text-charcoal"
-        />
+        <p
+          lang={htmlLang[locale]}
+          className={`mt-6 max-w-3xl text-2xl leading-relaxed text-charcoal ${familyClass(locale, "display")}`}
+        >
+          {productCopy(product, "heritage", locale)}
+        </p>
       </section>
     </main>
   );
 }
 
 /**
- * Labelled reference price (TRUST-02): the range, the source and the date the
- * source was checked. The source name is an English proper name inside both
- * passages, so it carries its own lang attribute (WCAG 3.1.2).
+ * Labelled reference price (TRUST-02) in the CHOSEN locale: the range, the
+ * source and the date the source was checked. The source name is an English
+ * proper name inside the passage, so it carries its own lang attribute
+ * (WCAG 3.1.2 Language of Parts).
  */
 function ReferencePriceBlock({
   reference,
@@ -407,37 +379,35 @@ function ReferencePriceBlock({
   lang: Locale;
   currency: string;
 }) {
-  const alt = altLocale(lang);
-
   return (
     <>
-      <BilingualPair
-        text={{
-          [locales[0]]: referenceRange(reference, currency, locales[0]),
-          [locales[1]]: referenceRange(reference, currency, locales[1]),
-        }}
-        lang={lang}
-        className="text-sm leading-relaxed text-charcoal"
-      />
-      {([lang, alt] as const).map((locale) => (
-        <p
-          key={locale}
-          lang={htmlLang[locale]}
-          className={`mt-1 text-sm leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
+      <p
+        lang={htmlLang[lang]}
+        className={`text-sm leading-relaxed text-charcoal ${familyClass(lang, "sans")}`}
+      >
+        {referenceRange(reference, currency, lang)}
+      </p>
+      <p
+        lang={htmlLang[lang]}
+        className={`mt-1 text-sm leading-relaxed text-charcoal ${familyClass(lang, "sans")}`}
+      >
+        {pick(referenceSourceLabel, lang)}
+        {/* Script-based separator (same finding class): a CJK page uses the
+            full-width colon regardless of which locale is configured first. */}
+        {isCjkLocale(lang) ? "：" : ": "}
+        {/* The English-source exception is ENGLISH by definition (review
+            finding), not "the first configured locale": a zh-HK-first
+            deployment must still mark the source name lang="en". */}
+        <a
+          href={reference.sourceUrl}
+          lang="en"
+          className="underline underline-offset-4 transition-colors duration-200 hover:text-ink-soft"
         >
-          {pick(referenceSourceLabel, locale)}
-          {locale === locales[0] ? ": " : "："}
-          <a
-            href={reference.sourceUrl}
-            lang={htmlLang[locales[0]]}
-            className="underline underline-offset-4 transition-colors duration-200 hover:text-ink-soft"
-          >
-            {reference.sourceName}
-          </a>
-          {locale === locales[0] ? ", " : "，"}
-          {referenceChecked(reference, locale)}
-        </p>
-      ))}
+          {reference.sourceName}
+        </a>
+        {lang === locales[0] ? ", " : "，"}
+        {referenceChecked(reference, lang)}
+      </p>
     </>
   );
 }

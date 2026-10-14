@@ -9,15 +9,18 @@
   - /zh-HK -> 200, <html lang="zh-Hant-HK">, Chinese <title>
   - /fr -> 404, bare shell still declares a document language
   - /en/nope, /zh-HK/nope -> 404 bare shell (no matching route). Document
-    language is the documented default 'en'; the bilingual not-found content
-    marks each passage (WCAG 3.1.2). A locale-scoped catch-all was rejected:
-    notFound() thrown at request time escapes SSR in this no-root-layout
-    setup and the document recovers with no lang.
+    language is the documented default 'en'; the 404 content renders that
+    one locale's passages, language-marked (WCAG 3.1.2). A locale-scoped
+    catch-all was rejected: notFound() thrown at request time escapes SSR in
+    this no-root-layout setup and the document recovers with no lang.
   - language of parts: assertions run against the rendered document with all
     <script> blocks stripped, so RSC serialization noise cannot satisfy them.
-  - equal typography (I18N-01, review finding 4): the homepage collection
-    heading pair shares an IDENTICAL class list, extending the paired-lead
-    typography regression.
+  - SINGLE-LOCALE DISPLAY (I18N-01 as re-decided by the founder 2026-10-14):
+    every passage renders the chosen locale's text only and the ALT locale's
+    approved copy is ABSENT; the paired-equal-weight display (both lead
+    passages, both collection headings) is retired and these tests pin that
+    regression forever. The language switcher is the one control that may
+    name both locales (endonyms).
   - aria-current="page" marks the home link only on the actual home route
     (review finding 5, components/current-page-link.tsx).
 
@@ -174,40 +177,52 @@ test("/zh-HK serves Traditional Chinese document", () =>
     );
   }));
 
-test("/en: paired lead copy shares one type class (I18N-01 equal weight)", () =>
+// Single-locale regression (I18N-01, founder 2026-10-14): the hero lead
+// passages render the CHOSEN language only — the old paired-lead typography
+// (chosen-language lead + ALT-language lead at equal weight) is retired.
+test("/en: hero leads render the chosen language only (I18N-01 single-locale)", () =>
   check(async () => {
     const { html } = await get("/en");
     const body = visible(html);
-    const leads =
-      body.match(/text-4xl leading-\[1\.35\] text-charcoal sm:text-5xl/g) ?? [];
-    assert.ok(
-      leads.length >= 2,
-      `expected both lead passages to share the lead class, found ${leads.length}`,
+    assert.match(
+      body,
+      new RegExp(
+        `<h1[^>]*lang="en"[^>]*>\s*${escapeRegExp(siteContent("hero.lead", "en"))}`,
+      ),
     );
+    // Single hero lead (founder decision 2026-10-14, architect fix): the
+    // paired-lead VARIANT must NOT render either — under single-locale
+    // display it would duplicate the lead sentence in the SAME language
+    // (it stays seeded DATA, admin-editable, just not rendered).
+    assert.ok(
+      !body.includes(siteContent("hero.leadPaired", "en")),
+      "the paired-lead variant must NOT render (single hero lead)",
+    );
+    // The ALT locale's lead copy is absent (the key regression).
+    assert.ok(!body.includes(siteContent("hero.leadPaired", "zh-HK")));
+    assert.ok(!body.includes(siteContent("hero.lead", "zh-HK")));
   }));
 
-// Equal-typography regression, extended (I18N-01, review finding 4): the
-// homepage collection heading pair must share an IDENTICAL class list, so
-// neither language can become the smaller, greyer translation. The pair
-// deliberately uses one script-aware font class (globals.css
-// font-display-pair: Fraunces for Latin, Noto Serif TC for Han) precisely so
-// the two class lists can be byte-identical.
-test("collection heading pair shares an identical class list (I18N-01)", () =>
+// Single-locale regression (I18N-01, founder 2026-10-14): ONE collection
+// heading in the chosen language. The old pair (two identical-class
+// headings, one per language) is retired; the heading keeps the
+// script-aware display token so the chosen locale's script gets the right
+// family from one class list.
+test("collection heading renders once, in the chosen language (I18N-01)", () =>
   check(async () => {
     for (const locale of ["en", "zh-HK"]) {
       const body = visible((await get(`/${locale}`)).html);
-      const first = elementClassOf(body, siteContent("drop.piecesHeading", locale));
-      const second = elementClassOf(
+      const heading = elementClassOf(
         body,
-        siteContent("drop.piecesHeading", locale === "en" ? "zh-HK" : "en"),
+        siteContent("drop.piecesHeading", locale),
       );
-      assert.equal(
-        first,
-        second,
-        `collection headings on /${locale} must have identical class lists`,
+      assert.match(heading, /\btext-2xl\b/);
+      assert.match(heading, /\bfont-display-pair\b/);
+      const alt = locale === "en" ? "zh-HK" : "en";
+      assert.ok(
+        !body.includes(siteContent("drop.piecesHeading", alt)),
+        `alt-locale collection heading must not render on /${locale}`,
       );
-      assert.match(first, /\btext-2xl\b/);
-      assert.match(first, /\bfont-display-pair\b/);
     }
   }));
 
@@ -243,28 +258,28 @@ test("aria-current=\"page\" marks the home link only on the home route", () =>
     }
   }));
 
-// Lead language assertions bind the language attribute to the lead's own
-// text, so the footer's smaller paired paragraphs cannot satisfy them.
-test("language of parts: /en marks its Chinese lead passage", () =>
+// Language-of-parts assertions bind the lang attribute to the passage's own
+// text (WCAG 3.1.2): each lead passage is marked with the CHOSEN language.
+test("language of parts: /en marks its lead passages as English", () =>
   check(async () => {
     const { html } = await get("/en");
     const body = visible(html);
     assert.match(
       body,
       new RegExp(
-        `<p[^>]*lang="zh-Hant-HK"[^>]*>\s*${escapeRegExp(siteContent("hero.leadPaired", "zh-HK"))}`,
+        `<h1[^>]*lang="en"[^>]*>\s*${escapeRegExp(siteContent("hero.lead", "en"))}`,
       ),
     );
   }));
 
-test("language of parts: /zh-HK marks its English lead passage", () =>
+test("language of parts: /zh-HK marks its lead passages as Traditional Chinese", () =>
   check(async () => {
     const { html } = await get("/zh-HK");
     const body = visible(html);
     assert.match(
       body,
       new RegExp(
-        `<p[^>]*lang="en"[^>]*>\s*${escapeRegExp(siteContent("hero.leadPaired", "en"))}`,
+        `<h1[^>]*lang="zh-Hant-HK"[^>]*>\s*${escapeRegExp(siteContent("hero.lead", "zh-HK"))}`,
       ),
     );
   }));
@@ -291,15 +306,27 @@ test("unknown subpath /en/nope is a 404 with a declared language", () =>
     assert.match(html, /<html lang="en"/);
   }));
 
-test("unknown subpath /zh-HK/nope: bare shell, bilingual marked content", () =>
+test("unknown subpath /zh-HK/nope: bare shell, default-locale marked content", () =>
   check(async () => {
     const { status, html } = await get("/zh-HK/nope");
     assert.equal(status, 404);
     assert.match(html, /<html lang="en"/);
     const body = visible(html);
-    // Both not-found passages are rendered and language-marked.
-    assert.match(body, /<span[^>]*lang="en"[^>]*>[^<]*Page not found/);
-    assert.match(body, /<span[^>]*lang="zh-Hant-HK"[^>]*>[^<]*找不到頁面/);
-    // Single-language accessible name with its own declared language.
+    // The 404 heading and body render the documented DEFAULT locale only,
+    // language-marked (WCAG 3.1.2); the alt locale's passages never render
+    // (single-locale display, founder 2026-10-14).
+    assert.match(body, /<h1[^>]*lang="en"[^>]*>[^<]*Page not found/);
+    assert.doesNotMatch(body, /lang="zh-Hant-HK"[^>]*>[^<]*找不到頁面/);
+    // The DOCUMENT TITLE is single-language too (review finding: the old
+    // bilingual "Page not found / 找不到頁面" title showed BOTH languages in
+    // the browser tab of an <html lang="en"> document).
+    const title = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? "";
+    assert.match(title, /Page not found/);
+    assert.ok(
+      !title.includes("找不到頁面"),
+      `title must be single-language, got: ${title}`,
+    );
+    // The language switcher (the one control that may name both locales)
+    // stays, with its single-language accessible name and declared language.
     assert.match(body, /<nav[^>]*aria-label="Language"[^>]*lang="en"/);
   }));

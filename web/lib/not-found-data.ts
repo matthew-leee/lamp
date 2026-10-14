@@ -9,9 +9,18 @@
  * links").
  *
  * Success path: site content (notFound.title, notFound.description,
- * notFound.body) + settings, rendered with the resolved brand.
- * Failure path (API down, brand unresolvable, content keys missing): the
- * generic fallback copy in lib/not-found-data.ts (GENERIC_404_BODY).
+ * notFound.body) + settings, rendered with the resolved brand. The copy is
+ * kept PER LOCALE (404 copy from the DB per locale); each shell renders its
+ * ONE locale's text (single-locale display, founder 2026-10-14).
+ *
+ * SINGLE-LANGUAGE FALLBACKS (review findings): the generic copy is defined
+ * PER LOCALE, and a locale whose company rows are missing gets ITS OWN
+ * locale's generic copy — never another locale's text (a zh-HK shell must
+ * never render English company copy marked zh, and the fallback titles are
+ * single-language: the old "Page not found / 找不到頁面" bilingual literal
+ * showed both languages in the browser tab under a single <html lang>).
+ * Failure path (API down, brand unresolvable): every locale falls back to
+ * its generic copy.
  */
 import { renderTemplate, requireApiUrl, resolveSiteConfig } from "./config.ts";
 import {
@@ -22,35 +31,47 @@ import {
 } from "./catalog-client.ts";
 import { locales } from "./i18n.ts";
 
-/** Generic, brand-free fallback body copy (the cannot-fetch case). Kept
- * here (not in the component) so unit tests can import it without a JSX
- * transform; the component imports it from here. */
+/** Generic, brand-free fallback copy per locale (the cannot-fetch case and
+ * the per-locale missing-row case). Kept here (not in the component) so
+ * unit tests can import it without a JSX transform; the component imports
+ * it from here. */
+export const GENERIC_404_TITLE: Record<string, string> = {
+  en: "Page not found",
+  "zh-HK": "找不到頁面",
+};
+
+export const GENERIC_404_DESCRIPTION: Record<string, string> = {
+  en: "Page not found. The two language editions are linked below.",
+  "zh-HK": "找不到頁面。以下連結前往兩個語言版本。",
+};
+
 export const GENERIC_404_BODY: Record<string, string> = {
   en: "This page does not exist. The two language editions are linked below.",
   "zh-HK": "此頁面不存在。以下連結前往兩個語言版本。",
 };
 
-/** Per-locale 404 copy, rendered and ready for the shells. */
+/** Per-locale 404 copy, rendered and ready for the shells. Every
+ * configured locale is always present (single-language per locale). */
 export interface NotFoundData {
   title: Record<string, string>;
   description: Record<string, string>;
   body: Record<string, string>;
 }
 
-/** Generic fallback metadata (locale-neutral, brand-free). */
-const FALLBACK_TITLE = "Page not found / 找不到頁面";
-const FALLBACK_DESCRIPTION =
-  "Page not found. 找不到頁面。The two language editions are linked below.";
-
-/** Per-locale lookup with first-locale fallback. */
-function perLocale(
+/**
+ * Strict per-locale read (review finding: NO cross-locale fallback): a
+ * locale gets a value only if ITS OWN row exists. A missing locale is
+ * filled with its own generic copy at assembly, so a zh-HK shell can never
+ * render an English passage marked zh (mixed-language content).
+ */
+function perLocaleStrict(
   content: SiteContent,
   key: string,
   brand: string,
-): Record<string, string> {
-  const out: Record<string, string> = {};
+): Partial<Record<string, string>> {
+  const out: Partial<Record<string, string>> = {};
   for (const locale of locales) {
-    const template = content[key]?.[locale] ?? content[key]?.[locales[0]];
+    const template = content[key]?.[locale];
     if (template !== undefined) {
       out[locale] = renderTemplate(template, { brand });
     }
@@ -58,7 +79,19 @@ function perLocale(
   return out;
 }
 
-/** Fetch-like (injectable for the unit tests). */
+/** Fill every configured locale, missing ones with THEIR OWN generic copy. */
+function withGenericPerLocale(
+  found: Partial<Record<string, string>>,
+  generic: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const locale of locales) {
+    // The generic maps cover the supported pair (LOCALE-02), so the final
+    // "" is unreachable defense against an exotic pair, never a real path.
+    out[locale] = found[locale] ?? generic[locale] ?? generic.en ?? "";
+  }
+  return out;
+}
 
 /**
  * Load 404 copy for the shells. NEVER THROWS: any failure (API env missing,
@@ -78,38 +111,32 @@ export async function loadNotFoundData(
     ]);
     const config = resolveSiteConfig(overrides);
 
-    const title = perLocale(content, "notFound.title", config.brandName);
-    const description = perLocale(
-      content,
-      "notFound.description",
-      config.brandName,
-    );
-    const body = perLocale(content, "notFound.body", config.brandName);
-
+    const body = perLocaleStrict(content, "notFound.body", config.brandName);
     if (Object.keys(body).length === 0) {
       // Content keys missing entirely: generic fallback rather than empty copy.
       return fallbackData();
     }
     return {
-      title: Object.keys(title).length > 0 ? title : { [locales[0]]: FALLBACK_TITLE },
-      description:
-        Object.keys(description).length > 0
-          ? description
-          : { [locales[0]]: FALLBACK_DESCRIPTION },
-      body,
+      title: withGenericPerLocale(
+        perLocaleStrict(content, "notFound.title", config.brandName),
+        GENERIC_404_TITLE,
+      ),
+      description: withGenericPerLocale(
+        perLocaleStrict(content, "notFound.description", config.brandName),
+        GENERIC_404_DESCRIPTION,
+      ),
+      body: withGenericPerLocale(body, GENERIC_404_BODY),
     };
   } catch {
     return fallbackData();
   }
 }
 
-/** The generic, brand-free fallback set. */
+/** The generic, brand-free fallback set (single-language per locale). */
 export function fallbackData(): NotFoundData {
-  const title: Record<string, string> = {};
-  const description: Record<string, string> = {};
-  for (const locale of locales) {
-    title[locale] = FALLBACK_TITLE;
-    description[locale] = FALLBACK_DESCRIPTION;
-  }
-  return { title, description, body: { ...GENERIC_404_BODY } };
+  return {
+    title: withGenericPerLocale({}, GENERIC_404_TITLE),
+    description: withGenericPerLocale({}, GENERIC_404_DESCRIPTION),
+    body: withGenericPerLocale({}, GENERIC_404_BODY),
+  };
 }

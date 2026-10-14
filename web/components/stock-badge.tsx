@@ -6,11 +6,12 @@
  * 1), so the badge renders the number-free placeholder until live availability
  * is confirmed in the browser via components/availability-context.tsx and
  * /api/availability. It then renders the lib/stock.ts decideStock() decision
- * as a bilingual pair:
+ * in the CHOSEN locale only (founder 2026-10-14: single-locale display; the
+ * alt locale never renders):
  *
- *   "尚餘 N 件" / "N left"           confirmed availability > 0
- *   "售罄" / "Sold out"             confirmed availability 0
- *   "存貨確認中" / "Confirming availability"   loading, unconfirmed, or slug missing
+ *   "尚餘 N 件" or "N left"               confirmed availability > 0
+ *   "售罄" or "Sold out"                 confirmed availability 0
+ *   "存貨確認中" or "Confirming availability"   loading, unconfirmed, or slug missing
  *
  * The unconfirmed state renders no number whatsoever: the badge never
  * displays a stock count it cannot confirm. The glow dot is ornament only
@@ -18,11 +19,11 @@
  */
 
 import { useAvailability } from "./availability-context";
-import { altLocale, htmlLang, type Locale } from "@/lib/i18n";
+import { htmlLang, type Locale } from "@/lib/i18n";
 import { decideStock } from "@/lib/stock";
 import {
   pick,
-  stockLeftPair,
+  stockLeft,
   stockSoldOut,
   stockUnconfirmed,
   type Bilingual,
@@ -49,11 +50,9 @@ export default function StockBadge({
     slug,
     unitsInDrop,
   );
-  const alt = altLocale(lang);
-
-  const pair: Bilingual =
+  const labels: Bilingual =
     state.kind === "left"
-      ? stockLeftPair(state.n)
+      ? stockLeft(state.n)
       : state.kind === "soldout"
         ? stockSoldOut
         : stockUnconfirmed;
@@ -61,11 +60,7 @@ export default function StockBadge({
   return (
     <p className="flex items-baseline gap-2 text-sm text-charcoal">
       <span aria-hidden="true" className="size-2 shrink-0 bg-glow" />
-      <span lang={htmlLang[lang]}>{pick(pair, lang)}</span>
-      <span aria-hidden="true" className="text-linen">
-        /
-      </span>
-      <span lang={htmlLang[alt]}>{pick(pair, alt)}</span>
+      <span lang={htmlLang[lang]}>{pick(labels, lang)}</span>
     </p>
   );
 }

@@ -251,14 +251,15 @@ INSERT INTO site_content (key, locale, value) VALUES
      '{subject}. A numbered piece of the {brand} opening drop of Louis Poulsen lighting. {brand} is an independent seller.'),
     ('meta.product.descriptionTemplate', 'zh-HK',
      '{subject}，{brand} 首發登場的編號 Louis Poulsen 燈飾。{brand} 為獨立賣家。'),
-    -- notFound.title/description are deliberately single bilingual strings
-    -- (mixed-language metadata), so both locales carry the same value.
-    ('notFound.title', 'en', '{brand} | Page not found / 找不到頁面'),
-    ('notFound.title', 'zh-HK', '{brand} | Page not found / 找不到頁面'),
+    -- notFound.title/description are SINGLE-LANGUAGE per locale (founder
+    -- decision 2026-10-14: one language per page — the old bilingual
+    -- metadata strings showed both languages in the browser tab).
+    ('notFound.title', 'en', '{brand} | Page not found'),
+    ('notFound.title', 'zh-HK', '{brand} | 找不到頁面'),
     ('notFound.description', 'en',
-     'Page not found. 找不到頁面。{brand}, curated designer homeware, Hong Kong.'),
+     'Page not found. {brand}, curated designer homeware, Hong Kong.'),
     ('notFound.description', 'zh-HK',
-     'Page not found. 找不到頁面。{brand}, curated designer homeware, Hong Kong.'),
+     '找不到頁面。{brand}，香港精選設計家居。'),
     ('notFound.body', 'en',
      'This page does not exist. The two language editions of {brand} are linked below.'),
     ('notFound.body', 'zh-HK',

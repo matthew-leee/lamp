@@ -27,5 +27,5 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function NotFound() {
   const data = await loadNotFoundData();
-  return <NotFoundContent body={data.body} />;
+  return <NotFoundContent body={data.body} lang={defaultLocale} />;
 }

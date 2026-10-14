@@ -16,9 +16,12 @@ import "./globals.css";
   entire document (no layout wraps it). Documented default language: the
   first configured locale (lib/i18n.ts defaultLocale).
 
-  Copy is company content from the database (notFound.* keys), fetched at
-  build and rendered with the brand; if that fails, the generic brand-free
-  fallback renders instead (lib/not-found-data.ts never throws).
+  Copy is company content from the database (notFound.* keys) of the
+  documented default locale, fetched at build and rendered with the brand;
+  if that fails, the generic brand-free fallback renders instead
+  (lib/not-found-data.ts never throws). Single-locale display like every
+  page (founder 2026-10-14): this shell renders the default locale's copy
+  only; the language switcher below it is the control for choosing.
 */
 
 export default async function GlobalNotFound() {
@@ -31,7 +34,7 @@ export default async function GlobalNotFound() {
         <meta name="description" content={data.description[defaultLocale] ?? ""} />
       </head>
       <body>
-        <NotFoundContent body={data.body} />
+        <NotFoundContent body={data.body} lang={defaultLocale} />
       </body>
     </html>
   );

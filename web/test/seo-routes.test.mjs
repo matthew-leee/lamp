@@ -226,9 +226,18 @@ test("bare 404 shell loads the token stylesheet (Q3: single source, no inline he
     assert.match(text, /<link[^>]*rel="stylesheet"[^>]*href="[^"]*\/_next\/static\/css\/[^"]+\.css"/);
     // ...and no hex color literals inline anywhere in the 404 document.
     assert.doesNotMatch(text, /#[0-9a-fA-F]{6}\b/);
-    // Bilingual content still rendered with language-of-parts.
+    // Single-locale 404 content (founder 2026-10-14): the documented default
+    // locale's passages only, language-marked; the alt locale never renders.
     assert.match(text, /lang="en"[^>]*>[^<]*Page not found/);
-    assert.match(text, /lang="zh-Hant-HK"[^>]*>[^<]*找不到頁面/);
+    assert.doesNotMatch(text, /lang="zh-Hant-HK"[^>]*>[^<]*找不到頁面/);
+    // Single-language document title (review finding: the old bilingual
+    // "Page not found / 找不到頁面" title showed both languages in the tab).
+    const docTitle = text.match(/<title>([^<]*)<\/title>/)?.[1] ?? "";
+    assert.match(docTitle, /Page not found/);
+    assert.ok(
+      !docTitle.includes("找不到頁面"),
+      `title must be single-language, got: ${docTitle}`,
+    );
   }));
 
 test(`the brand renders only as configuration (${BRAND} from build env)`, () =>

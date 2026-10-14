@@ -5,11 +5,14 @@
  *   hardcoded literal) linking to the current locale home. The native-script
  *   brand form shows on the second configured locale when one is configured;
  *   otherwise the Latin name serves both.
- * - Locale-aware nav (Home / 首頁), both languages at equal weight (I18N-01).
+ * - Locale-aware nav (Home / 首頁), the CHOSEN locale's label only (I18N-01
+ *   as re-decided by the founder 2026-10-14: one language per page; the
+ *   paired equal-weight display is retired).
  * - Language switcher whose accessible name is localized per locale; each
  *   language name is its own endonym with a lang attribute (WCAG 3.1.2
- *   Language of Parts). The switcher links to the two locale home routes
- *   because both language editions are whole routes, not overlays.
+ *   Language of Parts). The switcher is the ONE control that may show both
+ *   languages (it is how the visitor chooses); it links to the two locale
+ *   home routes because both language editions are whole routes, not overlays.
  */
 
 import Link from "next/link";
@@ -63,11 +66,7 @@ export default function SiteHeader({
               href={`/${lang}`}
               className={`text-sm text-charcoal transition-colors duration-200 hover:text-ink-soft ${familyClass(lang, "sans")}`}
             >
-              <span lang={htmlLang[locales[0]]}>{pick(navHome, locales[0])}</span>
-              <span aria-hidden="true" className="px-2 text-linen">
-                /
-              </span>
-              <span lang={htmlLang[locales[1]]}>{pick(navHome, locales[1])}</span>
+              <span lang={htmlLang[lang]}>{pick(navHome, lang)}</span>
             </CurrentPageLink>
           </nav>
 

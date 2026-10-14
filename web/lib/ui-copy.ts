@@ -15,10 +15,16 @@
  * Formatters here are pure functions over fetched data (CatalogueProduct,
  * ReferencePrice, SiteContent) so they stay unit-testable without a network.
  *
- * Copy rules preserved: paired passages are typed Bilingual (both locales, one
- * source of truth) and rendered in both languages on every page with lang
- * attributes (WCAG 3.1.2). No em-dashes; no apostrophes in user-facing copy.
- * Prices format only through lib/money.ts with the configured currency.
+ * Copy rules (I18N-01, founder decision 2026-10-14): SINGLE-LOCALE DISPLAY.
+ * Every storefront passage renders ONLY the text of the locale the visitor
+ * chose; the alt locale never renders (the sole exception is the language
+ * switcher control, whose links may name each locale in its own script).
+ * The old paired-equal-weight display (every passage in both languages) is
+ * RETIRED. Copy DATA still exists per locale (site_content and product copy
+ * are locale-keyed) and each rendered passage keeps its lang attribute
+ * (WCAG 3.1.2 Language of Parts). pick() is THE single-locale reader.
+ * No em-dashes; no apostrophes in user-facing copy. Prices format only
+ * through lib/money.ts with the configured currency.
  */
 
 import { renderTemplate } from "./config.ts";
@@ -31,21 +37,21 @@ import {
 import { formatMoney } from "./money.ts";
 import { locales, type Locale } from "./i18n.ts";
 
-/** A passage carried in both locales (equal weight everywhere). */
+/**
+ * Chrome label copy carried per locale (one entry per configured locale).
+ * Rendering picks ONE locale's text (see pick): the map is data, not a
+ * display pair.
+ */
 export type Bilingual = Record<Locale, string>;
 
-/** A locale-parameterised label (stock counts, piece numbering). */
-export type BilingualFormatter<Args extends readonly unknown[]> = Record<
-  Locale,
-  (...args: Args) => string
->;
-
 /**
- * Read one language of a bilingual pair, with graceful fallback: a locale
- * without its own chrome label falls back to the first defined entry rather
- * than rendering blank. The default pair (en, zh-HK) is fully covered; a
- * company running a different language pair adds their labels alongside
- * (documented white-label step, like restyling the CSS tokens).
+ * Read the chosen locale's text of a label map, with graceful fallback: a
+ * locale without its own chrome label falls back to the first defined entry
+ * rather than rendering blank. The default pair (en, zh-HK) is fully
+ * covered; a company running a different language pair adds their labels
+ * alongside (documented white-label step, like restyling the CSS tokens).
+ * This is THE single-locale reader (founder 2026-10-14: one language per
+ * page); nothing renders a second language next to it.
  */
 export function pick(text: Bilingual, locale: Locale): string {
   const value = text[locale];
@@ -55,25 +61,6 @@ export function pick(text: Bilingual, locale: Locale): string {
     throw new RangeError(`pick: empty bilingual pair for locale ${locale}`);
   }
   return fallback;
-}
-
-/**
- * Apply a locale-parameterised formatter in BOTH configured locales at once
- * (equal-weight pair). Falls back per locale like `pick`.
- */
-export function formatBoth<Args extends readonly unknown[]>(
-  formatter: BilingualFormatter<Args>,
-  ...args: Args
-): Bilingual {
-  const out: Bilingual = {};
-  for (const locale of locales) {
-    const fn = formatter[locale] ?? formatter["en"];
-    if (fn === undefined) {
-      throw new RangeError(`formatBoth: no formatter for locale ${locale}`);
-    }
-    out[locale] = fn(...args);
-  }
-  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -167,14 +154,15 @@ export const artPlaceholderNote: Bilingual = {
 /* Stock badge labels (never a number in the unconfirmed state)        */
 /* ------------------------------------------------------------------ */
 
-export const stockLeft: BilingualFormatter<[n: number]> = {
-  en: (n: number) => `${n} left`,
-  "zh-HK": (n: number) => `尚餘 ${n} 件`,
-};
-
-/** The confirmed-count label pair for `n` units left, both locales. */
-export function stockLeftPair(n: number): Bilingual {
-  return formatBoth(stockLeft, n);
+/**
+ * The confirmed-count label map for `n` units left (one label per locale;
+ * the badge renders the chosen locale's via pick).
+ */
+export function stockLeft(n: number): Bilingual {
+  return {
+    en: `${n} left`,
+    "zh-HK": `尚餘 ${n} 件`,
+  };
 }
 
 export const stockSoldOut: Bilingual = {
@@ -271,14 +259,14 @@ export function referenceChecked(ref: ReferencePrice, locale: string): string {
 }
 
 /** Accessible name for a placeholder artwork of `subject` in one locale.
-    Composition style is attached to the configured pair (Latin first, CJK
-    second); placeholder art is development-phase chrome replaced by
-    photography before launch. */
-export function artLabel(subject: Bilingual, locale: string): string {
+    Word order follows the chosen locale (Latin first, CJK second);
+    placeholder art is development-phase chrome replaced by photography
+    before launch. */
+export function artLabel(subject: string, locale: string): string {
   if (locale === locales[1]) {
-    return `${subject[locales[1]]} 的${artPlaceholderNote[locales[1]]}`;
+    return `${subject} 的${artPlaceholderNote[locales[1]]}`;
   }
-  return `${artPlaceholderNote[locales[0]]} for ${subject[locales[0]]}`;
+  return `${artPlaceholderNote[locales[0]]} for ${subject}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -302,21 +290,19 @@ export function productMetaDescription(
 }
 
 /**
- * Prefilled WhatsApp enquiry message, bilingual in one message: both
- * languages, one enquiry (the enquiry.messageTemplate copy per locale,
- * rendered with the brand and the subject).
+ * Prefilled WhatsApp enquiry message in the CHOSEN locale only (the
+ * enquiry.messageTemplate copy of that locale, rendered with the brand and
+ * the subject). Single-locale like every other passage (founder 2026-10-14):
+ * the message the visitor sends reads in the language they chose.
  */
 export function buildEnquiryMessage(
   content: SiteContent,
   brand: string,
-  subject: Bilingual,
+  subject: string,
+  locale: string,
 ): string {
-  return locales
-    .map((locale) =>
-      renderTemplate(
-        contentValue(content, "enquiry.messageTemplate", locale),
-        { brand, subject: subject[locale] },
-      ),
-    )
-    .join("\n\n");
+  return renderTemplate(
+    contentValue(content, "enquiry.messageTemplate", locale),
+    { brand, subject },
+  );
 }

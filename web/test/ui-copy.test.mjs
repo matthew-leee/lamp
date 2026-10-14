@@ -2,6 +2,10 @@
   Unit tests for lib/ui-copy.ts (D1): the chrome labels stay in code; every
   brand-bearing passage now comes from site content, so the formatters are
   tested over fixture data (test/fixtures/seed.mjs mirrors the seed).
+
+  Display rule (I18N-01, founder 2026-10-14): SINGLE-LOCALE. The label maps
+  are DATA (one entry per configured locale); pick() is THE single-locale
+  reader and nothing builds a both-locales rendering pair.
 */
 
 import { test } from "node:test";
@@ -11,13 +15,14 @@ import {
   artLabel,
   buildEnquiryMessage,
   dropNumbering,
-  formatBoth,
   pick,
   productDisplay,
   productMetaDescription,
   referenceChecked,
   referenceRange,
-  stockLeftPair,
+  stockLeft,
+  stockSoldOut,
+  stockUnconfirmed,
 } from "../lib/ui-copy.ts";
 
 import {
@@ -30,7 +35,7 @@ import {
 const PANTHELLA = CATALOGUE[0];
 const PIANO = CATALOGUE.find((p) => p.slug === "ph-1-1-piano-table-limited");
 
-test("chrome labels carry both locales at equal weight", async () => {
+test("chrome labels carry every configured locale as DATA (rendering picks one)", async () => {
   const copy = await import("../lib/ui-copy.ts");
   for (const key of [
     "navMainLabel",
@@ -84,11 +89,13 @@ test("pick reads a locale and falls back to the first defined entry", () => {
   assert.equal(pick(labels, "fr"), "Home");
 });
 
-test("formatBoth applies a formatter in both locales", () => {
-  const pair = stockLeftPair(2);
-  assert.equal(pair.en, "2 left");
-  assert.equal(pair["zh-HK"], "尚餘 2 件");
-  assert.equal(formatBoth(stockLeftPair ? { en: (n) => `${n}!` } : {}, 1).en, "1!");
+test("stockLeft is the per-locale confirmed-count label map (read one via pick)", () => {
+  const labels = stockLeft(2);
+  assert.equal(labels.en, "2 left");
+  assert.equal(labels["zh-HK"], "尚餘 2 件");
+  // The badge renders the CHOSEN locale's label only (single-locale display).
+  assert.equal(pick(stockLeft(2), "en"), "2 left");
+  assert.equal(pick(stockLeft(2), "zh-HK"), "尚餘 2 件");
 });
 
 test("productDisplay composes model + colourway per locale from data", () => {
@@ -103,7 +110,7 @@ test("productDisplay composes model + colourway per locale from data", () => {
   }
 });
 
-test("dropNumbering renders single pieces and ranges in both locales", () => {
+test("dropNumbering renders single pieces and ranges per locale", () => {
   assert.equal(dropNumbering([10], 16, "en"), "Piece 10 of 16");
   assert.equal(dropNumbering([10], 16, "zh-HK"), "第 10 件，共 16 件");
   assert.equal(dropNumbering([3, 4, 5, 6, 7], 16, "en"), "Pieces 03-07 of 16");
@@ -126,18 +133,19 @@ test("referenceRange and referenceChecked render amounts and dates", () => {
   assert.equal(referenceChecked(reference, "zh-HK"), "查核日期 2026-10-12");
 });
 
-test("artLabel composes the accessible name per locale", () => {
-  const subject = { en: "The lamp", "zh-HK": "這盞燈" };
-  assert.equal(artLabel(subject, "en"), "Placeholder artwork for The lamp");
-  assert.equal(artLabel(subject, "zh-HK"), "這盞燈 的暫代圖片");
+test("artLabel composes the accessible name in the chosen locale", () => {
+  assert.equal(artLabel("The lamp", "en"), "Placeholder artwork for The lamp");
+  assert.equal(artLabel("這盞燈", "zh-HK"), "這盞燈 的暫代圖片");
 });
 
-test("buildEnquiryMessage renders both templates with the brand", () => {
-  const subject = { en: "the drop", "zh-HK": "首發系列" };
-  const message = buildEnquiryMessage(SITE_CONTENT, BRAND, subject);
+test("buildEnquiryMessage renders the chosen locale's template with the brand", () => {
   assert.equal(
-    message,
-    `Hi ${BRAND}, I would like to ask about the drop.\n\n你好 ${BRAND}，我想查詢 首發系列。`,
+    buildEnquiryMessage(SITE_CONTENT, BRAND, "the drop", "en"),
+    `Hi ${BRAND}, I would like to ask about the drop.`,
+  );
+  assert.equal(
+    buildEnquiryMessage(SITE_CONTENT, BRAND, "首發系列", "zh-HK"),
+    `你好 ${BRAND}，我想查詢 首發系列。`,
   );
 });
 
@@ -154,4 +162,23 @@ test("productMetaDescription renders the template per locale, neutral claims", (
   );
   // The piano SKU has no verified reference price (fixture: null).
   assert.equal(PIANO.referencePrice, null);
+});
+
+test("stock badge labels: every state is single-language per locale (pick)", () => {
+  // Review gap (single-locale display): pin the CHOSEN-locale label for all
+  // three badge states, so no state can ever render the alt language's text.
+  assert.equal(pick(stockLeft(3), "en"), "3 left");
+  assert.equal(pick(stockLeft(3), "zh-HK"), "尚餘 3 件");
+  assert.equal(pick(stockSoldOut, "en"), "Sold out");
+  assert.equal(pick(stockSoldOut, "zh-HK"), "售罄");
+  assert.equal(pick(stockUnconfirmed, "en"), "Confirming availability");
+  assert.equal(pick(stockUnconfirmed, "zh-HK"), "存貨確認中");
+  // None of the en labels contains Han characters and none of the zh
+  // labels contains the en text (single-language per label).
+  for (const label of [pick(stockLeft(2), "en"), pick(stockSoldOut, "en"), pick(stockUnconfirmed, "en")]) {
+    assert.ok(!/[\u3400-\u9fff]/.test(label), `en label must stay English: ${label}`);
+  }
+  for (const label of [pick(stockLeft(2), "zh-HK"), pick(stockSoldOut, "zh-HK"), pick(stockUnconfirmed, "zh-HK")]) {
+    assert.ok(!/Sold out|left|Confirming/.test(label), `zh label must stay Chinese: ${label}`);
+  }
 });

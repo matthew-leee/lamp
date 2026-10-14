@@ -101,12 +101,12 @@ export const SITE_CONTENT = {
       "{subject}，{brand} 首發登場的編號 Louis Poulsen 燈飾。{brand} 為獨立賣家。",
   },
   "notFound.title": {
-    en: "{brand} | Page not found / 找不到頁面",
-    "zh-HK": "{brand} | Page not found / 找不到頁面",
+    en: "{brand} | Page not found",
+    "zh-HK": "{brand} | 找不到頁面",
   },
   "notFound.description": {
-    en: "Page not found. 找不到頁面。{brand}, curated designer homeware, Hong Kong.",
-    "zh-HK": "Page not found. 找不到頁面。{brand}, curated designer homeware, Hong Kong.",
+    en: "Page not found. {brand}, curated designer homeware, Hong Kong.",
+    "zh-HK": "找不到頁面。{brand}，香港精選設計家居。",
   },
   "notFound.body": {
     en: "This page does not exist. The two language editions of {brand} are linked below.",

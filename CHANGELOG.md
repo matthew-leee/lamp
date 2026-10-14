@@ -384,6 +384,83 @@ All notable changes to this project are documented here. Format follows
   seeded copy + catalogue the behavioural suites assert against.
 
 ### Changed
+- `web/` SINGLE-LOCALE STOREFRONT DISPLAY (I18N-01 as re-decided by the
+  founder 2026-10-14, overriding the old paired-equal-weight reading): every
+  storefront passage now renders ONLY the chosen locale's text — one
+  passage per key, each with its own lang attribute (WCAG 3.1.2 Language of
+  Parts) and the script-aware font stack of the chosen locale. The old
+  design rendered every passage in BOTH locales at equal weight
+  ("paired-lead typography", `components/bilingual.tsx` `BilingualPair`):
+  "if i choose english, fields like title first show the english title and
+  then the chinese title... only show the language that the user choose"
+  (founder). RETIRED: `BilingualPair` (deleted — call sites render one
+  passage inline), every both-locales span pair and its " / " separator
+  (homepage hero leads / drop framing / collection heading / trust strip /
+  enquiry intro / tile name + pieces, product-page labels + passages + name
+  + pieces + reference lines, stock-badge confirmed-count label, header home
+  nav, footer disclosure, 404 heading + body, lights-toggle label AND
+  accessible name, WhatsApp button label), `formatBoth` + `stockLeftPair` +
+  `BilingualFormatter` in `lib/ui-copy.ts` (`pick()` is THE single-locale
+  reader; `stockLeft(n)` now yields the per-locale label map), and the
+  bilingual WhatsApp prefilled message (`buildEnquiryMessage` renders the
+  CHOSEN locale's `enquiry.messageTemplate`). KEPT: language-of-parts lang
+  attributes (incl. the English reference-source proper name inside the
+  zh-HK passage), `familyClass` script-aware font stacks per chosen locale,
+  the language switcher (the ONE control that may show both locales — each
+  link is its locale's endonym with its lang attribute), DB copy per locale
+  (`site_content` / product content stay locale-keyed; `contentValue` stays
+  fail-loud per locale), the `NEXT_PUBLIC_LOCALES` pair, both locale routes
+  and hreflang/canonical alternates + the 18-URL sitemap (SEO metadata is
+  routing, not display). The 404 shells render one locale's copy (route
+  locale where known, the documented default elsewhere; loader data stays
+  per-locale). `app/[lang]/not-found.tsx` additionally tolerates the
+  params-less static boundary render (it used to crash the build as soon as
+  the boundary body read `params`). Tests rewritten to pin the NEW behavior
+  so the paired display can never return silently: for every storefront page
+  in en AND zh-HK the chosen locale's approved copy is PRESENT (fixtures),
+  the ALT locale's approved copy is ABSENT from the rendered HTML (chrome
+  labels, site-content keys, product copy, drop numbering, reference lines,
+  badge states — the key assertion), lang attributes bind to the right
+  passages, and the home link label is the chosen locale's
+  (`test/pages.test.mjs`, `test/routes.test.mjs`, `test/seo-routes.test.mjs`,
+  `test/ui-copy.test.mjs`). The paired pins are gone: "identical class list"
+  typography, "disclosure twice per language", bilingual 404 passages,
+  bilingual lights-toggle name, both-template enquiry message. Everything
+  else keeps working: trust copy, currency whitelists, JSON-LD, sitemap,
+  robots, 404s, availability placeholders, the no-stock-in-SSR ban. Test
+  count unchanged at 321 (the rewrites replaced pins one-for-one).
+  Architect fix after review of the delegated change: the homepage hero
+  renders ONE lead (`hero.lead`) — the delegated version rendered BOTH
+  seeded lead variants ("hero.lead" + "hero.leadPaired"), which under
+  single-locale display duplicated the lead sentence in the SAME language
+  (the paired variant was the old ALT-locale passage; `hero.leadPaired`
+  stays seeded DATA — admin-editable, usable by another company — but is
+  not rendered; pinned ABSENT in both suites). Two
+  judgment calls flagged for the founder: (1) the WhatsApp prefilled
+  message used to carry BOTH languages ("one enquiry"); the "alt language
+  never renders" rule was applied to it too (it is text the visitor sees) —
+  restoring the bilingual outbound message is a one-function change plus one
+  test if preferred; (2) `Vision.md` I18N-01 still reads "equal weight from
+  the first component" — the founder decision supersedes that display
+  reading, and a Vision.md update needs explicit alignment (left untouched).
+  Independent re-review fixes (second pass): the 404 document TITLES are
+  single-language per locale — the seeded `notFound.title`/`description`
+  used to be bilingual strings ("Page not found / 找不到頁面") shown in the
+  browser tab of a single-`lang` document; the seed (migration 0003, a
+  data fix — the gate DB rows updated to match), the test fixtures and the
+  per-locale GENERIC fallbacks (lib/not-found-data) all carry one language
+  per locale now. The loader is STRICT per locale (a missing locale row
+  gets ITS OWN generic copy, never another locale's company copy — the old
+  first-locale fallback could render English copy marked zh-Hant-HK);
+  the 404 shells' document titles are pinned single-language in the
+  behavioral suites. The footer location line carries its explicit `lang`
+  attribute; the English reference-source exception binds `lang="en"`
+  (not the first configured locale) and the source-label colon separator is
+  script-based (`isCjkLocale`, exported from components/bilingual) so a
+  reordered locale pair behaves identically. Test additions: the
+  missing-locale 404 regression, single-language per-state stock badge
+  labels, the homepage absence set now includes every ALT-locale product
+  tile name and drop-numbering run. 323 tests total.
 - `web/` `app/robots.ts` now disallows `/admin/` alongside `/api/` (the
   private admin surface is never crawled) and the `seo-routes` robots pin
   requires the new directive (`test/seo-routes.test.mjs`).

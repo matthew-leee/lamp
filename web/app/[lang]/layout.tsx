@@ -98,19 +98,15 @@ export default async function RootLayout({
   const locale: Locale = lang;
   const { content, config } = await loadChromeData();
 
-  // The disclosure and footer location are company copy: per-locale values
-  // rendered with the resolved brand (DATA-02; the footer renders both).
-  // footer.location is REQUIRED content (fail-loud: a missing location row
-  // must not silently drop the footer line).
-  const disclosure: Record<string, string> = {};
-  const location: Record<string, string> = {};
-  for (const l of locales) {
-    disclosure[l] = renderTemplate(
-      contentValue(content, "trust.disclosure", l),
-      { brand: config.brandName },
-    );
-    location[l] = contentValue(content, "footer.location", l);
-  }
+  // The disclosure and footer location are company copy: the CHOSEN locale's
+  // values rendered with the resolved brand (DATA-02; single-locale display,
+  // founder 2026-10-14). footer.location is REQUIRED content (fail-loud: a
+  // missing location row must not silently drop the footer line).
+  const disclosure = renderTemplate(
+    contentValue(content, "trust.disclosure", locale),
+    { brand: config.brandName },
+  );
+  const location = contentValue(content, "footer.location", locale);
 
   return (
     <html
@@ -124,7 +120,8 @@ export default async function RootLayout({
     >
       <body className="min-h-dvh bg-bone font-sans text-charcoal antialiased">
         {/* Shared chrome (T3): every page carries the header and the footer
-            disclosure in both languages (TRUST-01). */}
+            disclosure in the chosen language (TRUST-01; single-locale display,
+            founder 2026-10-14). */}
         <SiteHeader
           lang={locale}
           brandName={config.brandName}

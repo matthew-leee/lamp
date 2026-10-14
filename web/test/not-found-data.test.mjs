@@ -41,12 +41,12 @@ test("success path: company copy rendered with the resolved brand", async () => 
           json({
             content: {
               "notFound.title": {
-                en: "{brand} | Page not found / 找不到頁面",
-                "zh-HK": "{brand} | Page not found / 找不到頁面",
+                en: "{brand} | Page not found",
+                "zh-HK": "{brand} | 找不到頁面",
               },
               "notFound.description": {
                 en: "Page not found. {brand}, curated designer homeware, Hong Kong.",
-                "zh-HK": "Page not found. {brand}, curated designer homeware, Hong Kong.",
+                "zh-HK": "找不到頁面。{brand}，香港精選設計家居。",
               },
               "notFound.body": {
                 en: "This page does not exist. The two language editions of {brand} are linked below.",
@@ -57,7 +57,10 @@ test("success path: company copy rendered with the resolved brand", async () => 
         "/api/settings": () => json({ "brand.name": "HVILE" }),
       }),
     );
-    assert.equal(data.title.en, "HVILE | Page not found / 找不到頁面");
+    // Single-language per locale (founder 2026-10-14): the tab title is
+    // ONE language, and the alt-locale title never leaks into it.
+    assert.equal(data.title.en, "HVILE | Page not found");
+    assert.equal(data.title["zh-HK"], "HVILE | 找不到頁面");
     assert.equal(
       data.body.en,
       "This page does not exist. The two language editions of HVILE are linked below.",
@@ -92,7 +95,10 @@ test("API outage degrades to the generic fallback (not a throw)", async () => {
         "/api/settings": () => json({}, 503),
       }),
     );
-    assert.equal(data.title.en, "Page not found / 找不到頁面");
+    // The generic fallback is single-language PER LOCALE (the old bilingual
+    // literal showed both languages in the browser tab).
+    assert.equal(data.title.en, "Page not found");
+    assert.equal(data.title["zh-HK"], "找不到頁面");
     assert.equal(
       data.body["zh-HK"],
       "此頁面不存在。以下連結前往兩個語言版本。",
@@ -117,6 +123,42 @@ test("missing notFound keys degrade to the generic fallback", async () => {
     const expected = fallbackData();
     assert.equal(data.body.en, expected.body.en);
     assert.equal(data.title.en, expected.title.en);
+  } finally {
+    if (saved === undefined) delete process.env.NEXT_PUBLIC_API_URL;
+    else process.env.NEXT_PUBLIC_API_URL = saved;
+  }
+});
+test("a missing LOCALE row falls back to ITS OWN generic copy, never another locale's (single-language)", async () => {
+  // Review finding (re-review): the old loader substituted the first
+  // locale's company copy for a missing locale — a zh-HK shell could render
+  // English company copy marked zh. The strict per-locale read + per-locale
+  // generic fill keeps every passage single-language.
+  const saved = process.env.NEXT_PUBLIC_API_URL;
+  process.env.NEXT_PUBLIC_API_URL = API;
+  try {
+    const data = await loadNotFoundData(
+      fetchOf({
+        // English rows only: zh-HK must get the zh-HK GENERIC copy.
+        "/api/site-content": () =>
+          json({
+            content: {
+              "notFound.title": { en: "{brand} | Page not found" },
+              "notFound.description": { en: "Page not found. {brand}, curated." },
+              "notFound.body": { en: "This page does not exist, from {brand}." },
+            },
+          }),
+        "/api/settings": () => json({ "brand.name": "HVILE" }),
+      }),
+    );
+    assert.equal(data.title.en, "HVILE | Page not found");
+    assert.equal(data.body.en, "This page does not exist, from HVILE.");
+    // zh-HK got ITS OWN generic copy — never the English passage.
+    assert.equal(data.title["zh-HK"], "找不到頁面");
+    assert.equal(
+      data.body["zh-HK"],
+      "此頁面不存在。以下連結前往兩個語言版本。",
+    );
+    assert.ok(!data.body["zh-HK"].includes("HVILE"), "no brand leakage into the generic zh copy");
   } finally {
     if (saved === undefined) delete process.env.NEXT_PUBLIC_API_URL;
     else process.env.NEXT_PUBLIC_API_URL = saved;

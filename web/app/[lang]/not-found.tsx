@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import NotFoundContent from "@/components/not-found-content";
 import { loadNotFoundData } from "@/lib/not-found-data";
-import { defaultLocale, isLocale } from "@/lib/i18n";
+import { defaultLocale, isLocale, type Locale } from "@/lib/i18n";
 
 /*
   Locale-scoped not-found boundary: safety net for notFound() thrown inside
@@ -18,14 +18,28 @@ import { defaultLocale, isLocale } from "@/lib/i18n";
 */
 
 type NotFoundProps = {
-  params: Promise<{ lang: string }>;
+  params: Promise<{ lang: string }> | undefined;
 };
+
+/**
+ * The boundary's route locale, or the documented default when Next renders
+ * this shell WITHOUT route params (static generation of the not-found
+ * boundary passes no props at all — verified: `await params` is undefined
+ * there and destructuring it crashes the build).
+ */
+async function boundaryLocale(
+  params: NotFoundProps["params"],
+): Promise<Locale> {
+  const resolved = await params;
+  return resolved !== undefined && isLocale(resolved.lang)
+    ? resolved.lang
+    : defaultLocale;
+}
 
 export async function generateMetadata({
   params,
 }: NotFoundProps): Promise<Metadata> {
-  const { lang } = await params;
-  const locale = isLocale(lang) ? lang : defaultLocale;
+  const locale = await boundaryLocale(params);
   const data = await loadNotFoundData();
   return {
     title: data.title[locale] ?? data.title[defaultLocale],
@@ -34,7 +48,7 @@ export async function generateMetadata({
 }
 
 export default async function NotFound({ params }: NotFoundProps) {
-  await params; // locale is irrelevant to the shared bilingual 404 body
+  const locale = await boundaryLocale(params);
   const data = await loadNotFoundData();
-  return <NotFoundContent body={data.body} />;
+  return <NotFoundContent body={data.body} lang={locale} />;
 }

@@ -12,9 +12,12 @@
  * resolved brand; prices render in the configured currency. The drop total is
  * the catalogue's derived COUNT, never a constant.
  *
- * Copy rules (I18N-01): both languages at equal weight, each passage with its
- * own lang attribute (WCAG 3.1.2), shared type class per pair so neither
- * language is the smaller translation. No em-dashes.
+ * Copy rules (I18N-01, founder decision 2026-10-14): SINGLE-LOCALE DISPLAY.
+ * Every passage renders ONLY the chosen locale's text, one passage per key,
+ * each with its own lang attribute (WCAG 3.1.2 Language of Parts) and the
+ * script-aware type family for that locale (components/bilingual.tsx). The
+ * old paired-equal-weight display (every passage in both languages) is
+ * RETIRED. No em-dashes.
  *
  * Stock badges are client components (commitment 5b, review finding 1): SSR
  * HTML never contains a stock number. Badges render the number-free
@@ -37,45 +40,48 @@ import {
   type SiteContent,
 } from "@/lib/catalog-client";
 import { renderTemplate, requireApiUrl, resolveSiteConfig } from "@/lib/config";
-import { altLocale, htmlLang, isLocale, locales, type Locale } from "@/lib/i18n";
+import { htmlLang, isLocale, type Locale } from "@/lib/i18n";
 import { formatMoney } from "@/lib/money";
 import {
   artLabel,
   buildEnquiryMessage,
   dropNumbering,
+  pick,
   productDisplay,
   trustStripLabel,
-  type Bilingual,
 } from "@/lib/ui-copy";
 
-/* Shared type class per pair: both languages at the same size, weight and
-   contrast (I18N-01). */
+/* Shared type class for the hero lead passages: same size, weight and
+   contrast (I18N-01); both now render the chosen locale only. */
 const leadClass = "text-4xl leading-[1.35] text-charcoal sm:text-5xl";
 
-/* Collection heading pair (I18N-01): ONE class list shared by both languages. */
+/* Collection heading (I18N-01): one heading; the display-pair token is a
+   script-aware display stack (Latin Fraunces, Han Noto Serif TC), so the
+   chosen locale's script gets the right family from one class list. */
 const collectionHeadingClass = "text-2xl text-charcoal font-display-pair";
 
 type HomePageProps = {
   params: Promise<{ lang: string }>;
 };
 
-/** Read one site-content key as a rendered bilingual pair (fail-loud).
- * Rendered vars: {brand} and, for copy that names the drop size, {pieces} =
- * the catalogue-derived total (COUNT, never a prose constant). */
-function contentPair(
+/**
+ * Read one site-content key as the CHOSEN locale's rendered string (fail-loud).
+ * Single-locale display (founder 2026-10-14): the page builds only the chosen
+ * locale's text, never a both-locales pair, and the JSX renders one passage
+ * per key with its lang attribute. Rendered vars: {brand} and, for copy that
+ * names the drop size, {pieces} = the catalogue-derived total (COUNT, never a
+ * prose constant). */
+function contentText(
   content: SiteContent,
   key: string,
+  locale: Locale,
   brand: string,
   pieces: number,
-): Bilingual {
-  const out: Bilingual = {};
-  for (const locale of locales) {
-    out[locale] = renderTemplate(contentValue(content, key, locale), {
-      brand,
-      pieces: String(pieces),
-    });
-  }
-  return out;
+): string {
+  return renderTemplate(contentValue(content, key, locale), {
+    brand,
+    pieces: String(pieces),
+  });
 }
 
 export default async function HomePage({ params }: HomePageProps) {
@@ -84,7 +90,6 @@ export default async function HomePage({ params }: HomePageProps) {
     notFound();
   }
   const locale: Locale = lang;
-  const alt = altLocale(locale);
 
   const apiUrl = requireApiUrl();
   const [catalogue, content, overrides] = await Promise.all([
@@ -97,34 +102,18 @@ export default async function HomePage({ params }: HomePageProps) {
   // Company copy from site content, rendered with the brand and the derived
   // drop size (DATA-02: the count in prose comes from the COUNT, not prose).
   const totalPieces = catalogue.totalPieces;
-  const heroEyebrowPair = contentPair(content, "hero.eyebrow", config.brandName, totalPieces);
-  const heroLeadPair = contentPair(content, "hero.lead", config.brandName, totalPieces);
-  const heroLeadPairedPair = contentPair(
-    content,
-    "hero.leadPaired",
-    config.brandName,
-    totalPieces,
-  );
-  const dropFramingPair = contentPair(content, "drop.framing", config.brandName, totalPieces);
-  const piecesHeadingPair = contentPair(
-    content,
-    "drop.piecesHeading",
-    config.brandName,
-    totalPieces,
-  );
-  const disclosurePair = contentPair(
-    content,
-    "trust.disclosure",
-    config.brandName,
-    totalPieces,
-  );
-  const enquiryIntroPair = contentPair(content, "enquiry.intro", config.brandName, totalPieces);
-  const dropSubjectPair = contentPair(
-    content,
-    "enquiry.dropSubject",
-    config.brandName,
-    totalPieces,
-  );
+  const heroEyebrow = contentText(content, "hero.eyebrow", locale, config.brandName, totalPieces);
+  const heroLead = contentText(content, "hero.lead", locale, config.brandName, totalPieces);
+  // Single hero lead (founder decision 2026-10-14): the old design rendered a
+  // SECOND lead passage in the ALT locale ("paired lead"); with single-locale
+  // display that would render two near-duplicate sentences in the SAME
+  // language, so only `hero.lead` renders. `hero.leadPaired` stays SEEDED
+  // DATA (admin-editable, another company may use it) — just not rendered.
+  const dropFraming = contentText(content, "drop.framing", locale, config.brandName, totalPieces);
+  const piecesHeading = contentText(content, "drop.piecesHeading", locale, config.brandName, totalPieces);
+  const disclosure = contentText(content, "trust.disclosure", locale, config.brandName, totalPieces);
+  const enquiryIntro = contentText(content, "enquiry.intro", locale, config.brandName, totalPieces);
+  const dropSubject = contentText(content, "enquiry.dropSubject", locale, config.brandName, totalPieces);
 
   return (
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 sm:px-10">
@@ -135,26 +124,19 @@ export default async function HomePage({ params }: HomePageProps) {
             className={`text-sm tracking-[0.22em] text-ink-soft ${familyClass(locale, "sans")}`}
             lang={htmlLang[locale]}
           >
-            {heroEyebrowPair[locale]}
+            {heroEyebrow}
           </p>
           <h1
             className={`mt-6 ${leadClass} ${familyClass(locale, "display")}`}
             lang={htmlLang[locale]}
           >
-            {heroLeadPair[locale]}
+            {heroLead}
           </h1>
           <p
-            className={`mt-6 ${leadClass} ${familyClass(alt, "display")}`}
-            lang={htmlLang[alt]}
+            className={`mt-10 text-lg text-charcoal ${familyClass(locale, "sans")}`}
+            lang={htmlLang[locale]}
           >
-            {heroLeadPairedPair[alt]}
-          </p>
-          <p className={`mt-10 text-lg text-charcoal ${familyClass(locale, "sans")}`}>
-            <span lang={htmlLang[locale]}>{dropFramingPair[locale]}</span>
-            <span aria-hidden="true" className="px-2 text-linen">
-              /
-            </span>
-            <span lang={htmlLang[alt]}>{dropFramingPair[alt]}</span>
+            {dropFraming}
           </p>
         </div>
 
@@ -165,35 +147,26 @@ export default async function HomePage({ params }: HomePageProps) {
             lit
             hue={catalogue.products[0]!.art.hue}
             variant={catalogue.products[0]!.art.variant}
-            label={artLabel(dropSubjectPair, locale)}
+            label={artLabel(dropSubject, locale)}
           />
         </div>
       </section>
 
       {/* The numbered drop: the active catalogue, one tile per SKU. */}
       <section className="mt-28">
-        {/* Equal-typography collection heading pair (I18N-01). */}
-        <div className="space-y-2">
-          <h2 className={collectionHeadingClass} lang={htmlLang[locale]}>
-            {piecesHeadingPair[locale]}
-          </h2>
-          <p className={collectionHeadingClass} lang={htmlLang[alt]}>
-            {piecesHeadingPair[alt]}
-          </p>
-        </div>
+        {/* One collection heading in the chosen language (I18N-01). */}
+        <h2 className={collectionHeadingClass} lang={htmlLang[locale]}>
+          {piecesHeading}
+        </h2>
 
         <ul className="mt-12 grid gap-x-10 gap-y-16 sm:grid-cols-2 lg:grid-cols-3">
           {catalogue.products.map((product) => {
-            const name: Bilingual = {};
-            const pieces: Bilingual = {};
-            for (const l of locales) {
-              name[l] = productDisplay(product, l);
-              pieces[l] = dropNumbering(
-                product.pieces,
-                catalogue.totalPieces,
-                l,
-              );
-            }
+            const name = productDisplay(product, locale);
+            const pieces = dropNumbering(
+              product.pieces,
+              catalogue.totalPieces,
+              locale,
+            );
             return (
               <li key={product.slug}>
                 <Link
@@ -207,23 +180,15 @@ export default async function HomePage({ params }: HomePageProps) {
                   />
                   <p
                     className={`mt-5 text-xs tracking-[0.18em] text-ink-soft ${familyClass(locale, "sans")}`}
+                    lang={htmlLang[locale]}
                   >
-                    <span lang={htmlLang[locale]}>{pieces[locale]}</span>
-                    <span aria-hidden="true" className="px-1.5 text-linen">
-                      /
-                    </span>
-                    <span lang={htmlLang[alt]}>{pieces[alt]}</span>
+                    {pieces}
                   </p>
-                  <h3 className="mt-2 text-lg leading-snug text-charcoal">
-                    <span lang={htmlLang[locale]} className={familyClass(locale, "sans")}>
-                      {name[locale]}
-                    </span>
-                    <span aria-hidden="true" className="px-2 text-linen">
-                      /
-                    </span>
-                    <span lang={htmlLang[alt]} className={familyClass(alt, "sans")}>
-                      {name[alt]}
-                    </span>
+                  <h3
+                    className={`mt-2 text-lg leading-snug text-charcoal ${familyClass(locale, "sans")}`}
+                    lang={htmlLang[locale]}
+                  >
+                    {name}
                   </h3>
                   <p className="mt-3 text-2xl text-charcoal font-sans">
                     {formatMoney(product.priceCents, config.currency)}
@@ -242,44 +207,39 @@ export default async function HomePage({ params }: HomePageProps) {
         </ul>
       </section>
 
-      {/* Trust strip: who the seller is, in both languages. */}
+      {/* Trust strip: who the seller is, in the chosen language. */}
       <section className="mt-28 border-t border-sand pt-12">
         <p
           className={`text-sm tracking-[0.22em] text-ink-soft ${familyClass(locale, "sans")}`}
           lang={htmlLang[locale]}
         >
-          {trustStripLabel[locale] ?? trustStripLabel.en}
+          {pick(trustStripLabel, locale)}
         </p>
         <p
           className={`mt-4 max-w-3xl text-lg leading-relaxed text-charcoal ${familyClass(locale, "sans")}`}
           lang={htmlLang[locale]}
         >
-          {disclosurePair[locale]}
-        </p>
-        <p
-          className={`mt-3 max-w-3xl text-lg leading-relaxed text-charcoal ${familyClass(alt, "sans")}`}
-          lang={htmlLang[alt]}
-        >
-          {disclosurePair[alt]}
+          {disclosure}
         </p>
       </section>
 
       {/* WhatsApp enquiry entry (renders nothing without a confirmed number). */}
       <section className="mt-20">
-        <p className={`text-xl text-charcoal ${familyClass(locale, "display")}`}>
-          <span lang={htmlLang[locale]}>{enquiryIntroPair[locale]}</span>
-          <span aria-hidden="true" className="px-2 text-linen">
-            /
-          </span>
-          <span lang={htmlLang[alt]}>{enquiryIntroPair[alt]}</span>
+        <p
+          className={`text-xl text-charcoal ${familyClass(locale, "display")}`}
+          lang={htmlLang[locale]}
+        >
+          {enquiryIntro}
         </p>
         <div className="mt-6">
           <WhatsAppButton
             number={config.whatsappNumber}
+            lang={locale}
             message={buildEnquiryMessage(
               content,
               config.brandName,
-              dropSubjectPair,
+              dropSubject,
+              locale,
             )}
           />
         </div>
